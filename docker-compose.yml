@@ -1,0 +1,51 @@
+# docker-compose Tharvel — replica locale dell'ambiente Coolify.
+#
+# Uso:
+#   docker compose build          # costruisce entrambi i target
+#   docker compose up             # avvia server :3000 + ui :5173
+#   docker compose down           # ferma tutto, mantiene i volumi
+#   docker compose down -v        # pulisce anche DB e siti registrati
+#
+# In Coolify questi due servizi vengono deployati separatamente con le stesse
+# env var. I volumi `tharvel-data` e `tharvel-sites` diventano volumi Coolify.
+
+services:
+  tharvel-server:
+    build:
+      context: .
+      target: server
+    container_name: tharvel-server
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - tharvel-data:/data
+      - tharvel-sites:/var/tharvel/sites
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      THARVEL_DB_PATH: /data/tharvel.db
+      THARVEL_SITES_ROOT: /var/tharvel/sites
+    # Healthcheck minimo: solo che la porta sia in ascolto.
+    # Quando aggiungeremo un endpoint /api/health dedicato lo aggiorniamo.
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('net').connect(3000).on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  tharvel-ui:
+    build:
+      context: .
+      target: ui
+    container_name: tharvel-ui
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    depends_on:
+      - tharvel-server
+
+volumes:
+  tharvel-data:
+  tharvel-sites:

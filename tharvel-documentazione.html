@@ -1,0 +1,969 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tharvel - Documento Strategico Integrato</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #182019;
+      --muted: #5e695f;
+      --paper: #f6f1e7;
+      --panel: #fffaf0;
+      --panel-strong: #efe2c5;
+      --line: #d8caa7;
+      --accent: #315f4f;
+      --accent-2: #8b5e28;
+      --danger: #8b2f22;
+      --ok: #2f6b3d;
+      --shadow: 0 24px 70px rgba(42, 32, 14, .14);
+      --radius: 22px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: "Aptos", "Segoe UI", system-ui, sans-serif;
+      --serif: Georgia, "Times New Roman", serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 10% 0%, rgba(139, 94, 40, .16), transparent 34rem),
+        linear-gradient(135deg, #f9f4e8 0%, var(--paper) 52%, #ebe0c9 100%);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.6;
+    }
+
+    a { color: inherit; }
+
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+      min-height: 100vh;
+    }
+
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 24px;
+      border-right: 1px solid var(--line);
+      background: rgba(246, 241, 231, .84);
+      backdrop-filter: blur(18px);
+      overflow: auto;
+    }
+
+    .brand {
+      display: grid;
+      gap: 8px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand-mark {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      color: #fffaf0;
+      background: var(--accent);
+      border-radius: 50% 50% 46% 54%;
+      font: 700 18px/1 var(--serif);
+      box-shadow: inset 0 -8px 18px rgba(0, 0, 0, .14);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font: 700 clamp(28px, 4vw, 44px)/.95 var(--serif);
+      letter-spacing: -.04em;
+    }
+
+    .brand p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .nav-title {
+      margin: 24px 0 10px;
+      color: var(--accent-2);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .nav {
+      display: grid;
+      gap: 4px;
+    }
+
+    .nav a {
+      padding: 9px 10px;
+      border-radius: 12px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 650;
+      text-decoration: none;
+    }
+
+    .nav a:hover,
+    .nav a:focus-visible {
+      color: var(--ink);
+      background: rgba(49, 95, 79, .1);
+      outline: none;
+    }
+
+    main {
+      padding: clamp(24px, 5vw, 64px);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr);
+      gap: clamp(24px, 5vw, 70px);
+      align-items: end;
+      max-width: 1180px;
+      margin: 0 auto 44px;
+      padding: clamp(26px, 5vw, 64px);
+      border: 1px solid var(--line);
+      border-radius: calc(var(--radius) + 10px);
+      background: linear-gradient(145deg, rgba(255, 250, 240, .92), rgba(239, 226, 197, .72));
+      box-shadow: var(--shadow);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      width: fit-content;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      color: var(--accent-2);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 44px;
+      height: 1px;
+      background: currentColor;
+    }
+
+    .hero h2 {
+      margin: 0;
+      max-width: 780px;
+      font: 760 clamp(42px, 8vw, 96px)/.88 var(--serif);
+      letter-spacing: -.065em;
+    }
+
+    .hero .lead {
+      max-width: 710px;
+      margin: 24px 0 0;
+      color: #384238;
+      font-size: clamp(18px, 2vw, 22px);
+      line-height: 1.45;
+    }
+
+    .hero-card {
+      display: grid;
+      gap: 16px;
+      padding: 22px;
+      border: 1px solid rgba(49, 95, 79, .18);
+      border-radius: var(--radius);
+      background: rgba(255, 250, 240, .74);
+    }
+
+    .hero-card strong {
+      display: block;
+      color: var(--accent);
+      font: 760 24px/1.1 var(--serif);
+    }
+
+    .hero-card span {
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .meta-grid,
+    .card-grid,
+    .two-col,
+    .three-col {
+      display: grid;
+      gap: 18px;
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+
+    .meta-grid { grid-template-columns: repeat(3, 1fr); }
+    .card-grid { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+    .three-col { grid-template-columns: repeat(3, 1fr); }
+
+    .section {
+      max-width: 1180px;
+      margin: 44px auto 0;
+      padding: clamp(26px, 4vw, 44px);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255, 250, 240, .78);
+      box-shadow: 0 12px 42px rgba(42, 32, 14, .08);
+      scroll-margin-top: 24px;
+    }
+
+    .section.plain {
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+      padding-inline: 0;
+    }
+
+    .section-header {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 24px;
+    }
+
+    .section-header h2,
+    .section-header h3 {
+      margin: 0;
+      font: 760 clamp(30px, 4vw, 54px)/1 var(--serif);
+      letter-spacing: -.045em;
+    }
+
+    .section-header p {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+    }
+
+    .card,
+    .metric,
+    .note {
+      padding: 20px;
+      border: 1px solid rgba(216, 202, 167, .9);
+      border-radius: 18px;
+      background: rgba(255, 252, 245, .82);
+    }
+
+    .card h3,
+    .card h4,
+    .metric h3,
+    .note h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .card p,
+    .metric p,
+    .note p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .metric strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--accent);
+      font: 760 clamp(24px, 4vw, 42px)/.95 var(--serif);
+    }
+
+    .tag-list,
+    .pill-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 18px 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .tag-list li,
+    .pill-list li,
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 10px;
+      border: 1px solid rgba(49, 95, 79, .18);
+      border-radius: 999px;
+      color: #264b3f;
+      background: rgba(49, 95, 79, .08);
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .status.open { color: var(--accent-2); background: rgba(139, 94, 40, .1); }
+    .status.risk { color: var(--danger); background: rgba(139, 47, 34, .1); }
+    .status.done { color: var(--ok); background: rgba(47, 107, 61, .1); }
+
+    .timeline {
+      display: grid;
+      gap: 14px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: step;
+    }
+
+    .timeline li {
+      position: relative;
+      display: grid;
+      grid-template-columns: 42px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+      padding: 16px;
+      border: 1px solid rgba(216, 202, 167, .86);
+      border-radius: 18px;
+      background: rgba(255, 252, 245, .72);
+      counter-increment: step;
+    }
+
+    .timeline li::before {
+      content: counter(step);
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      color: #fffaf0;
+      background: var(--accent);
+      font-weight: 850;
+    }
+
+    .timeline strong { display: block; margin-bottom: 4px; }
+    .timeline span { color: var(--muted); }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .flow li {
+      display: grid;
+      grid-template-columns: 18px minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      color: var(--muted);
+    }
+
+    .flow li::before {
+      content: "";
+      width: 9px;
+      height: 9px;
+      margin-top: 8px;
+      border-radius: 50%;
+      background: var(--accent-2);
+      box-shadow: 0 0 0 5px rgba(139, 94, 40, .12);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 252, 245, .75);
+    }
+
+    table {
+      width: 100%;
+      min-width: 760px;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th,
+    td {
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(216, 202, 167, .76);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--accent);
+      background: rgba(49, 95, 79, .08);
+      font-size: 12px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    code,
+    pre {
+      font-family: var(--mono);
+    }
+
+    code {
+      padding: 2px 5px;
+      border-radius: 7px;
+      background: rgba(49, 95, 79, .1);
+      font-size: .92em;
+    }
+
+    pre {
+      overflow: auto;
+      margin: 18px 0 0;
+      padding: 18px;
+      border: 1px solid rgba(49, 95, 79, .18);
+      border-radius: 18px;
+      color: #20372f;
+      background: #f0ead9;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 252, 245, .72);
+    }
+
+    details + details { margin-top: 12px; }
+
+    summary {
+      cursor: pointer;
+      padding: 16px 18px;
+      color: var(--accent);
+      font-weight: 820;
+    }
+
+    details > div {
+      padding: 0 18px 18px;
+      color: var(--muted);
+    }
+
+    .callout {
+      margin-top: 18px;
+      padding: 18px 20px;
+      border-left: 5px solid var(--accent);
+      border-radius: 16px;
+      background: rgba(49, 95, 79, .08);
+    }
+
+    .callout strong { color: var(--accent); }
+
+    .warning {
+      border-left-color: var(--danger);
+      background: rgba(139, 47, 34, .08);
+    }
+
+    .warning strong { color: var(--danger); }
+
+    .source-list {
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .source-list li {
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 252, 245, .74);
+    }
+
+    .source-list strong { display: block; }
+    .source-list code { word-break: break-all; }
+
+    footer {
+      max-width: 1180px;
+      margin: 44px auto 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar {
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .hero,
+      .two-col { grid-template-columns: 1fr; }
+      .meta-grid,
+      .card-grid,
+      .three-col { grid-template-columns: 1fr; }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .shell { display: block; }
+      .sidebar { display: none; }
+      main { padding: 0; }
+      .hero,
+      .section,
+      .card,
+      .metric,
+      .note { box-shadow: none; break-inside: avoid; }
+      a { text-decoration: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="Navigazione documento">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">T</div>
+        <h1>Tharvel</h1>
+        <p>Documento integrato da visione, sicurezza e backup.</p>
+      </div>
+
+      <p class="nav-title">Indice</p>
+      <nav class="nav">
+        <a href="#sintesi">Sintesi</a>
+        <a href="#fonti">Fonti analizzate</a>
+        <a href="#prodotto">Prodotto</a>
+        <a href="#architettura">Architettura</a>
+        <a href="#flusso">Flusso operativo</a>
+        <a href="#sicurezza">Sicurezza</a>
+        <a href="#backup">Backup e restore</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="#decisioni">Decisioni</a>
+        <a href="#rischi">Rischi</a>
+      </nav>
+    </aside>
+
+    <main>
+      <section class="hero" id="top">
+        <div>
+          <span class="eyebrow">Documento Strategico Integrato</span>
+          <h2>Admin panel universale per siti già esistenti.</h2>
+          <p class="lead">Tharvel è pensato come alternativa professionale al ciclo WordPress + Elementor: consegna al cliente autonomia sui contenuti, mantenendo al developer controllo su Git, deploy, sicurezza e costi AI.</p>
+        </div>
+        <div class="hero-card" aria-label="Tesi centrale">
+          <strong>Non genera siti da zero.</strong>
+          <span>Adotta siti HTML, React, Next.js, Vue, Astro o WordPress e li rende gestibili tramite chat AI, preview live e pubblicazione controllata.</span>
+          <ul class="tag-list">
+            <li>Self-hosted</li>
+            <li>BYOK</li>
+            <li>Git-native</li>
+            <li>Multi-site</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="sintesi">
+        <div class="section-header">
+          <h2>Sintesi Esecutiva</h2>
+          <p>I tre documenti convergono su una direzione chiara: Tharvel deve diventare uno strumento self-hosted per agenzie e developer, ma la Beta richiede prima confinamento agente, identità solida e backup testati.</p>
+        </div>
+
+        <div class="meta-grid">
+          <article class="metric">
+            <strong>1</strong>
+            <h3>Promise prodotto</h3>
+            <p>Eliminare micro-ticket e dipendenza da WordPress dando al cliente modifiche autonome, preview e pubblicazione esplicita.</p>
+          </article>
+          <article class="metric">
+            <strong>3</strong>
+            <h3>Prerequisiti Beta</h3>
+            <p>Bubblewrap, Identity/JWT e backup automatici DB + siti prima di mettere clienti reali nel sistema.</p>
+          </article>
+          <article class="metric">
+            <strong>24h</strong>
+            <h3>RPO Beta target</h3>
+            <p>Backup daily con restore drill mensile; auto-commit su preview riduce il rischio sui file sito a circa un turno.</p>
+          </article>
+        </div>
+
+        <div class="callout">
+          <strong>Tesi integrata:</strong> Tharvel funziona solo se la parte AI resta subordinata a confini tecnici verificabili: Git per storia e rollback, bwrap per isolamento, JWT per routing autorizzato, restic per recupero operativo.
+        </div>
+      </section>
+
+      <section class="section plain" id="fonti">
+        <div class="section-header">
+          <h2>Fonti Analizzate</h2>
+          <p>Questa pagina è una riorganizzazione ragionata dei tre Markdown, non una conversione 1:1 riga-per-riga.</p>
+        </div>
+        <ul class="source-list">
+          <li>
+            <strong>Visione, architettura e filosofia</strong>
+            <code>/home/michele/Desktop/Progetti/Tharvel/progetto-tharvel.md</code>
+          </li>
+          <li>
+            <strong>Piano Backup & Restore</strong>
+            <code>/home/michele/Desktop/Progetti/Tharvel/progetto-tharvel-backup.md</code>
+          </li>
+          <li>
+            <strong>Roadmap sicurezza</strong>
+            <code>/home/michele/Desktop/Progetti/Tharvel/progetto-tharvel-security.md</code>
+          </li>
+        </ul>
+      </section>
+
+      <section class="section" id="prodotto">
+        <div class="section-header">
+          <h2>Prodotto e Posizionamento</h2>
+          <p>Tharvel si posiziona come admin panel universale installato dal developer sulla propria VPS e distribuito ai clienti insieme ai siti.</p>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <h3>Problema che risolve</h3>
+            <p>Il cliente vuole aggiornare testi, prezzi, immagini o sezioni senza aprire ticket. WordPress + Elementor risolve l'editing visuale, ma introduce plugin fragili, performance scadenti, sicurezza debole e scarso version control.</p>
+            <ul class="pill-list">
+              <li>meno ticket manuali</li>
+              <li>meno stack WordPress</li>
+              <li>più autonomia cliente</li>
+            </ul>
+          </div>
+
+          <div class="card">
+            <h3>Differenza chiave</h3>
+            <p>Non è un CMS proprietario e non richiede di ricostruire il sito: si aggancia a repo esistenti via reverse proxy, lascia i repo cliente intatti e delega modifiche controllate a Pi Agent dal container centrale.</p>
+            <ul class="pill-list">
+              <li>agnostico</li>
+              <li>Git-native</li>
+              <li>self-hosted</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="section-header" style="margin-top:32px">
+          <h3>Confronto sintetico</h3>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>WordPress + Elementor</th>
+                <th>Tharvel</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Siti esistenti</td>
+                <td>Richiede ecosistema WordPress.</td>
+                <td>Adotta siti HTML, framework moderni o anche WordPress.</td>
+              </tr>
+              <tr>
+                <td>Editing</td>
+                <td>Visual builder interno, spesso pesante.</td>
+                <td>Chat con Pi Agent, upload file, visual editor e preview live.</td>
+              </tr>
+              <tr>
+                <td>Versioning</td>
+                <td>Revisioni limitate e rollback manuale.</td>
+                <td>Branch preview, auto-commit per turn, diff e pubblicazione esplicita.</td>
+              </tr>
+              <tr>
+                <td>Sicurezza</td>
+                <td>Plugin e superficie PHP monolitica.</td>
+                <td>2FA, JWT, sandbox bwrap, audit log, container AI non pubblico.</td>
+              </tr>
+              <tr>
+                <td>Costi AI</td>
+                <td>Non nativo.</td>
+                <td>BYOK come default; managed futuro.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="architettura">
+        <div class="section-header">
+          <h2>Architettura Target</h2>
+          <p>La scelta centrale è co-locare l'admin nel sito e tenere intelligenza, segreti, Git e agent engine sulla VPS del developer.</p>
+        </div>
+
+        <div class="card-grid">
+          <article class="card">
+            <h3>Container centralizzato, repo cliente intatti</h3>
+            <p>Decisione 2026-05-07: niente cartella <code>_tharvel/</code> dentro i repo dei clienti. Il cliente accede da <code>clientesito.com/tharveladmin</code>, Nginx fa proxy verso il container Tharvel unico sulla VPS del developer, che risolve l'host nella tabella <code>sites</code>.</p>
+            <pre><code>sito-cliente/
+├── index.html      ← invariato
+├── assets/
+└── ...             ← zero codice Tharvel</code></pre>
+            <p style="margin-top:10px"><strong>Trade-off:</strong> singolo punto di guasto per tutti i pannelli admin (mitigato da healthcheck Coolify + auto-restart). Vantaggi: un solo codebase da aggiornare, repo cliente puliti, multi-tenancy reale.</p>
+          </article>
+
+          <article class="card">
+            <h3>VPS con due container logici</h3>
+            <p>Tharvel App gestisce UI, auth, Git, upload, routing multi-tenant e WebSocket; Pi Agent Engine resta interno alla rete Docker e lavora sui volumi dei siti.</p>
+            <pre><code>clientesito.com/tharveladmin
+   → Nginx (X-Forwarded-Host)
+   → Tharvel App :3000
+   → DB lookup `sites` (domain → cwd_path)
+   → Pi Agent Engine :8080
+   → /var/www/siti-clienti/&lt;dominio&gt;/</code></pre>
+          </article>
+        </div>
+
+        <div class="section-header" style="margin-top:32px">
+          <h3>Stack per layer</h3>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Layer</th><th>Tecnologie / scelte</th><th>Ruolo</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Frontend admin</td><td>Nuxt 3, Vue 3, Tailwind CSS</td><td>Chat, preview iframe, pannello gestione.</td></tr>
+              <tr><td>Backend</td><td>Node.js, Nitro</td><td>Auth, WS streaming, upload, Git integration.</td></tr>
+              <tr><td>AI engine</td><td>Pi Agent SDK wrappato</td><td>Modifiche codice, tool custom, streaming token.</td></tr>
+              <tr><td>Storage</td><td>SQLite ora, PostgreSQL target per mapping/audit</td><td>Utenti, sessioni, siti, log.</td></tr>
+              <tr><td>Deploy</td><td>Git + Coolify webhook</td><td>Merge su main e rebuild automatico.</td></tr>
+              <tr><td>Security runtime</td><td>bwrap, JWT con jose, Argon2id, TOTP</td><td>Confine filesystem/processo e identità.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="flusso">
+        <div class="section-header">
+          <h2>Flusso Operativo</h2>
+          <p>Il modello separa sempre bozza e produzione. L'agente lavora su <code>preview</code>; il sito live cambia solo dopo l'azione esplicita "Pubblica".</p>
+        </div>
+
+        <ol class="timeline">
+          <li><div><strong>Prompt o upload</strong><span>Il cliente chiede una modifica in linguaggio naturale e può allegare immagini, PDF o asset.</span></div></li>
+          <li><div><strong>Pi Agent lavora sul branch preview</strong><span>Modifica file sorgente, comprime immagini, aggiorna contenuti e manda streaming live.</span></div></li>
+          <li><div><strong>Preview aggiornata</strong><span>L'iframe mostra il risultato sul branch preview prima di toccare la produzione.</span></div></li>
+          <li><div><strong>Auto-commit post-turn</strong><span>Dopo un turn riuscito e con file realmente modificati, Tharvel crea un commit leggibile su preview.</span></div></li>
+          <li><div><strong>Pubblicazione esplicita</strong><span>Click su "Pubblica" → merge preview in main/master → push origin → webhook Coolify → deploy.</span></div></li>
+        </ol>
+
+        <div class="callout">
+          <strong>Policy chiusa 2026-05-10:</strong> auto-commit sì su <code>preview</code> dopo ogni turn riuscito; auto-push no. Il push avviene solo dentro il flusso "Pubblica".
+        </div>
+      </section>
+
+      <section class="section" id="sicurezza">
+        <div class="section-header">
+          <h2>Modello Sicurezza</h2>
+          <p>La roadmap sicurezza parte da un principio netto: il prompt non è una difesa. La sicurezza deve essere imposta dal runtime, dal filesystem, dalla rete e dall'identità.</p>
+        </div>
+
+        <div class="three-col">
+          <article class="note">
+            <h3>Filesystem</h3>
+            <p>Rischio: un agente legge o scrive fuori dal sito. Difesa target: namespace bwrap che vede solo <code>/work</code> scrivibile.</p>
+          </article>
+          <article class="note">
+            <h3>Esecuzione</h3>
+            <p>Rischio: shell arbitraria, installazioni, script malevoli. Difesa target: bash custom allowlisted dentro sandbox.</p>
+          </article>
+          <article class="note">
+            <h3>Network</h3>
+            <p>Rischio: esfiltrazione o movimento laterale. Difesa target: default-deny host su reti private + binari minimi.</p>
+          </article>
+        </div>
+
+        <div class="card-grid" style="margin-top:18px">
+          <article class="card">
+            <h3>Identity / routing</h3>
+            <p>Il client non deve mai scegliere il sito con una query string manipolabile. Il server valida un JWT firmato che contiene <code>slug</code> e <code>role</code>, poi ignora valori incompatibili.</p>
+          </article>
+          <article class="card">
+            <h3>Prompt injection</h3>
+            <p>File del sito possono contenere istruzioni ostili. Con bwrap, anche se l'agente prova a leggere <code>/etc/passwd</code> o altri path, il namespace non li espone.</p>
+          </article>
+        </div>
+
+        <div class="section-header" style="margin-top:32px">
+          <h3>Strati e priorità</h3>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Strato</th><th>Decisione</th><th>Priorità</th><th>Note</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Strato 1 - Tool wrapping</td><td>Declassato</td><td>Opzionale / telemetria</td><td>Utile per audit, non basta contro bash.</td></tr>
+              <tr><td>Strato 2 - User Linux per sito</td><td>Fuori scope</td><td>Saltare</td><td>Assorbito da bwrap.</td></tr>
+              <tr><td>Strato 3a - Bubblewrap</td><td>Scelto</td><td>Fondazione tecnica</td><td>Da fare prima: filesystem/process/network boundary.</td></tr>
+              <tr><td>Strato 4 - Identity/JWT</td><td><code>jose</code> scelto</td><td>Blocker prodotto</td><td>Login, ruolo, slug e validazione WebSocket.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout warning">
+          <strong>Blocco Beta:</strong> senza bwrap + JWT, un cliente o un agente possono potenzialmente leggere/modificare altri siti o aggirare il routing. Questo va chiuso prima di clienti reali.
+        </div>
+      </section>
+
+      <section class="section" id="backup">
+        <div class="section-header">
+          <h2>Backup e Restore</h2>
+          <p>Il piano backup completa la sicurezza: non basta prevenire incidenti, bisogna poter ripristinare DB, sorgenti, upload e segreti con RTO/RPO misurati.</p>
+        </div>
+
+        <div class="card-grid">
+          <article class="card">
+            <h3>Tool e destinazione</h3>
+            <p>Backup con <code>restic</code>, cifrato, deduplicato e incrementale. Destinazione scelta: OVH Object Storage Standard S3-compatible, region EU GRA o SBG.</p>
+          </article>
+          <article class="card">
+            <h3>Retention</h3>
+            <p>Schema: 7 daily, 4 weekly, 6 monthly, 1 yearly. In Beta privata la frequenza è daily; a regime si rivaluta ogni 4 ore.</p>
+          </article>
+        </div>
+
+        <div class="section-header" style="margin-top:32px">
+          <h3>Inventario dati</h3>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Tier</th><th>Asset</th><th>Path tipico</th><th>Frequenza</th><th>Nota</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>A</td><td>DB Tharvel SQLite</td><td><code>/var/tharvel/data/tharvel.db</code></td><td>daily</td><td>Usare <code>sqlite3 .backup</code>, non copia diretta con WAL attivo.</td></tr>
+              <tr><td>A</td><td>Sorgenti siti e upload</td><td><code>/var/tharvel/sites/&lt;slug&gt;/</code></td><td>daily</td><td>Escludere <code>node_modules</code>, <code>dist</code>, cache.</td></tr>
+              <tr><td>A</td><td>Segreti e deploy keys</td><td><code>/var/tharvel/.env</code>, <code>/secrets/</code></td><td>daily</td><td>Cifrati nel repository restic.</td></tr>
+              <tr><td>B</td><td><code>.git/</code> locale</td><td><code>&lt;slug&gt;/.git/</code></td><td>daily</td><td>Facilita diagnosi post-restore.</td></tr>
+              <tr><td>OUT</td><td>Build/cache</td><td><code>node_modules/</code>, <code>dist/</code></td><td>mai</td><td>Rigenerabili.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="two-col" style="margin-top:18px">
+          <div class="card">
+            <h3>Restore drill completo</h3>
+            <ul class="flow">
+              <li>Provisioning VPS staging.</li>
+              <li>Installazione restic, git, node, npm, sqlite3.</li>
+              <li><code>restic check</code> e verifica snapshot recente.</li>
+              <li>Restore latest su <code>/restore</code>.</li>
+              <li><code>PRAGMA integrity_check</code> sul DB.</li>
+              <li>Build sito campione e smoke test Tharvel.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Target Beta</h3>
+            <p><strong>RTO:</strong> 4 ore. <strong>RPO:</strong> 24 ore. Il drill completo va fatto prima della Beta e ogni mese durante la Beta; il drill veloce deve stare sotto i 15 minuti.</p>
+            <div class="callout">
+              <strong>Regola d'oro:</strong> la passphrase restic è il single point of recovery. Va custodita fuori dalla VPS, in password manager e copia fisica sicura.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="roadmap">
+        <div class="section-header">
+          <h2>Roadmap Unificata</h2>
+          <p>La roadmap prodotto e quella operativa si incastrano: prima solidità tecnica, poi Beta privata, poi ecosistema.</p>
+        </div>
+
+        <div class="three-col">
+          <article class="card">
+            <h3>Fase POC</h3>
+            <p>Agente funzionante su sito Astro reale, Alt+click e chat. Nessun cliente reale, sicurezza non ancora rilevante.</p>
+            <span class="status done">raggiunta</span>
+          </article>
+          <article class="card">
+            <h3>Beta privata</h3>
+            <p>1-3 clienti fidati. Richiede bwrap completo, Identity/JWT, backup automatici e restore drill eseguito.</p>
+            <span class="status open">prossima fase</span>
+          </article>
+          <article class="card">
+            <h3>Prod aperta</h3>
+            <p>Clienti casuali, decine/centinaia di siti. Richiede audit, quote risorse, monitoring, alerting e sicurezza indurita.</p>
+            <span class="status risk">futuro</span>
+          </article>
+        </div>
+
+        <div class="section-header" style="margin-top:32px">
+          <h3>Feature MVP organizzate</h3>
+        </div>
+        <div class="card-grid">
+          <article class="card">
+            <h3>Core</h3>
+            <ul class="flow">
+              <li>Auth sicura con Argon2id, JWT e 2FA TOTP.</li>
+              <li>Admin multi-tenant centralizzato dietro <code>clientesito.com/tharveladmin</code> via Nginx proxy.</li>
+              <li>Chat Pi Agent con streaming token.</li>
+              <li>Upload file con compressione Sharp.</li>
+              <li>Preview live su branch separato.</li>
+              <li>Diff pre-pubblicazione, snapshot e rollback.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h3>Espansione</h3>
+            <ul class="flow">
+              <li>Generazione immagini AI.</li>
+              <li>Visual editor click-to-edit.</li>
+              <li>Gestione blog, prodotti, file manager.</li>
+              <li>Multi-sito con sidebar admin reale.</li>
+              <li>Timeline grafica modifiche e notifiche sicurezza.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="decisioni">
+        <div class="section-header">
+          <h2>Registro Decisioni</h2>
+          <p>Le decisioni sotto sono quelle emerse o chiuse nei documenti e utili per guidare l'implementazione.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Area</th><th>Decisione</th><th>Stato</th><th>Impatto</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>AI SDK</td><td>Pi Agent come cuore, wrappato via SDK TypeScript.</td><td><span class="status done">chiusa</span></td><td>Permette custom tools, streaming e BYOK.</td></tr>
+              <tr><td>Version control</td><td>Auto-commit sì su preview dopo turn riuscito; auto-push no.</td><td><span class="status done">chiusa</span></td><td>Storia leggibile e pubblicazione esplicita.</td></tr>
+              <tr><td>Sandbox</td><td>Bubblewrap invece di container per sessione.</td><td><span class="status done">chiusa</span></td><td>Confinamento forte con overhead basso.</td></tr>
+              <tr><td>JWT</td><td>Libreria <code>jose</code>.</td><td><span class="status done">chiusa</span></td><td>Base per auth e WS validation.</td></tr>
+              <tr><td>Network policy</td><td>Default-deny host su reti private + binari minimi; niente hostname whitelist in Beta.</td><td><span class="status done">chiusa</span></td><td>Riduce lateral movement senza bloccare Git workflow.</td></tr>
+              <tr><td>Backup</td><td>restic su OVH Object Storage Standard.</td><td><span class="status done">chiusa</span></td><td>Backup cifrato, economico, EU, deduplicato.</td></tr>
+              <tr><td>Backup region</td><td>GRA vs SBG.</td><td><span class="status open">aperta</span></td><td>Scelta operativa legata alla region VPS.</td></tr>
+              <tr><td>Login cliente</td><td>Password vs magic link.</td><td><span class="status open">aperta</span></td><td>Password basta per Beta; magic link migliora UX ma richiede SMTP.</td></tr>
+              <tr><td>Backup alert</td><td>Email, Slack, Healthchecks.io.</td><td><span class="status open">aperta</span></td><td>Da decidere in implementazione operations.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="rischi">
+        <div class="section-header">
+          <h2>Rischi e Prossime Mosse</h2>
+          <p>I rischi principali sono già identificati nei documenti. La priorità è trasformarli in gate operativi verificabili.</p>
+        </div>
+
+        <details open>
+          <summary>Rischio 1 - Agent senza confinamento reale</summary>
+          <div>Prima di clienti reali, implementare bwrap come fondazione tecnica: mount del solo sito come scrivibile, runtime read-only, binari minimi, deploy key per sito e test su VPS reale.</div>
+        </details>
+        <details>
+          <summary>Rischio 2 - Routing multi-tenant manipolabile</summary>
+          <div>Implementare Strato 4: login, JWT firmato con <code>slug</code> e <code>role</code>, validazione WebSocket e sidebar siti accessibile solo agli admin.</div>
+        </details>
+        <details>
+          <summary>Rischio 3 - Backup non testato</summary>
+          <div>Schedulare restic daily e completare un restore drill prima della Beta. Registrare RTO, RPO e problemi in un file dedicato ai drill.</div>
+        </details>
+        <details>
+          <summary>Rischio 4 - Segreti recuperabili solo dalla VPS</summary>
+          <div>Separare la passphrase restic dalla VPS, custodirla in password manager e copia fisica. Le credenziali S3 possono stare in backup cifrato, ma non la passphrase.</div>
+        </details>
+      </section>
+
+      <footer>
+        <p>Generato come sintesi strutturata dei tre documenti Markdown Tharvel. Ultimo aggiornamento contenuti sorgente: maggio 2026.</p>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

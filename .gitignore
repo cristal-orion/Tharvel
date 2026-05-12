@@ -1,0 +1,47 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code project state (locale per macchina)
+.claude/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env / secrets — MAI committarli
+.env
+.env.local
+.env.*.local
+
+# Tharvel runtime data
+tharvel/data/*
+!tharvel/data/.gitkeep
+tharvel/logs/*
+!tharvel/logs/.gitkeep
+tharvel/sites/*
+!tharvel/sites/.gitkeep
+# server/assets/ è cartella di upload runtime — qualsiasi file ci finisca dentro
+# è scarto di test (vedi commento in server/index.ts:426). Niente nel repo.
+tharvel/server/assets/*
+!tharvel/server/assets/.gitkeep
+
+# UI build artifacts (ricostruiti dal Docker build)
+tharvel/ui/dist/
+tharvel/ui/.astro/
+tharvel/**/*.tsbuildinfo
+
+# Logs in generale
+*.log
+
+# Dump di sessione (file grossi, non rilevanti per il codice)
+tharvel/*-riprendiamo-*.txt
+tharvel/2026-*-riprendiamo*.txt

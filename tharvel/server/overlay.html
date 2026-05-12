@@ -1,0 +1,68 @@
+<style>
+  /* Stili overlay Tharvel: pointer di selezione iniettato al volo nei siti senza script proprio. */
+  .tharvel-hover { outline: 2px dashed #10b981 !important; outline-offset: 2px !important; cursor: crosshair !important; position: relative; z-index: 9999; }
+  .tharvel-highlight { outline: 3px solid #10b981 !important; outline-offset: 2px !important; box-shadow: 0 0 15px rgba(16, 185, 129, 0.4) !important; position: relative; z-index: 9999; }
+</style>
+<script>
+  // Logica MCP Pointer nativa: hover su Alt + click per selezionare un elemento e
+  // notificare il widget parent via postMessage(THARVEL_ELEMENT_SELECTED).
+  // Iniettato dal server Tharvel nei siti che non includono già lo snippet (es. build Astro).
+  (function () {
+    if (window.__tharvelOverlayInstalled) return;
+    window.__tharvelOverlayInstalled = true;
+
+    let currentHighlight = null;
+    let isAltPressed = false;
+
+    function getXPath(element) {
+      if (element.id !== '') return 'id("' + element.id + '")';
+      if (element === document.body) return element.tagName;
+      var ix = 0;
+      var siblings = element.parentNode.childNodes;
+      for (var i = 0; i < siblings.length; i++) {
+        var sibling = siblings[i];
+        if (sibling === element) return getXPath(element.parentNode) + '/' + element.tagName + '[' + (ix + 1) + ']';
+        if (sibling.nodeType === 1 && sibling.tagName === element.tagName) ix++;
+      }
+    }
+
+    document.addEventListener('keydown', (e) => { if (e.altKey) isAltPressed = true; });
+    document.addEventListener('keyup', (e) => {
+      if (!e.altKey) {
+        isAltPressed = false;
+        document.querySelectorAll('.tharvel-hover').forEach(el => el.classList.remove('tharvel-hover'));
+      }
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (isAltPressed) {
+        document.querySelectorAll('.tharvel-hover').forEach(el => el.classList.remove('tharvel-hover'));
+        if (e.target && e.target !== document.body && e.target !== document.documentElement) {
+          e.target.classList.add('tharvel-hover');
+        }
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      if (e.altKey) {
+        e.preventDefault();
+        e.stopPropagation();
+
+        if (currentHighlight) currentHighlight.classList.remove('tharvel-highlight');
+        currentHighlight = e.target;
+        currentHighlight.classList.add('tharvel-highlight');
+        currentHighlight.classList.remove('tharvel-hover');
+
+        const info = {
+          tag: currentHighlight.tagName.toLowerCase(),
+          id: currentHighlight.id,
+          classes: Array.from(currentHighlight.classList).filter(c => !c.startsWith('tharvel-')).join(' '),
+          text: currentHighlight.innerText.substring(0, 150).trim(),
+          xpath: getXPath(currentHighlight)
+        };
+
+        window.parent.postMessage({ type: 'THARVEL_ELEMENT_SELECTED', info }, '*');
+      }
+    }, true);
+  })();
+</script>

@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Claude / editor
+.claude/
+.vscode/
+.idea/
+
+# Node modules — reinstallati dentro l'immagine
+**/node_modules/
+
+# Env locale
+.env
+.env.local
+.env.*.local
+
+# Runtime data — montati come volumi Coolify
+tharvel/data/
+tharvel/logs/
+tharvel/sites/
+
+# UI build cache — il Dockerfile ricostruisce da zero
+tharvel/ui/dist/
+tharvel/ui/.astro/
+tharvel/**/*.tsbuildinfo
+
+# Documentazione strategica (non serve dentro il container)
+progetto-tharvel*.md
+tharvel-documentazione.html
+tharvel/debugging-pi-agent.md
+tharvel/*-riprendiamo-*.txt
+
+# Logs
+*.log
+tharvel/logs/
