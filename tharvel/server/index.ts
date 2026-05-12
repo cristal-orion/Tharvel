@@ -512,7 +512,11 @@ Regole fondamentali:
 const uiDistPath = path.resolve(__dirname, '..', 'ui-dist');
 if (existsSync(uiDistPath)) {
   app.use(express.static(uiDistPath));
-  app.get('*', (req, res, next) => {
+  // SPA fallback: tutto ciò che non risolve a un file statico né a /site/<slug>
+  // restituisce index.html (Vue Router gestisce client-side).
+  // Express 5: `app.get('*', ...)` rompe path-to-regexp 8 → uso app.use middleware.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
     if (req.path.startsWith('/site/')) return next();
     res.sendFile(path.join(uiDistPath, 'index.html'));
   });
