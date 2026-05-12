@@ -90,7 +90,7 @@ app.use(express.json());
 
 // Overlay Tharvel (CSS + JS per Alt+click) iniettato negli HTML dei siti che non
 // includono già lo snippet (es. build Astro). Caricato una volta sola al boot.
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 const THARVEL_OVERLAY = readFileSync(path.resolve(__dirname, 'overlay.html'), 'utf-8');
 
 // Riscrive gli href/src "assoluti dalla root" con il prefisso /site/<slug>/.
@@ -505,6 +505,21 @@ Regole fondamentali:
     ws.send(JSON.stringify({ type: 'error', message: 'Impossibile avviare il motore AI' }));
   }
 });
+
+// Static serve della UI Vue (single-container in produzione).
+// Il Dockerfile target=server copia ui/dist da ui-builder in /app/ui-dist.
+// In dev questo path non esiste: il server salta lo static e l'UI viene servita da `vite dev` su :5173.
+const uiDistPath = path.resolve(__dirname, '..', 'ui-dist');
+if (existsSync(uiDistPath)) {
+  app.use(express.static(uiDistPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/site/')) return next();
+    res.sendFile(path.join(uiDistPath, 'index.html'));
+  });
+  console.log(`[UI] static served from ${uiDistPath}`);
+} else {
+  console.log(`[UI] ui-dist non trovato (${uiDistPath}): dev mode, l'UI gira su vite :5173`);
+}
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

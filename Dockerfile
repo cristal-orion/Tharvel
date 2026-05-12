@@ -2,13 +2,11 @@
 #
 # Stage 1 (ui-builder)   : builda l'UI Vue+Vite, output /build/tharvel/ui/dist
 # Stage 2 (server-deps)  : installa deps server con toolchain C++ per better-sqlite3
-# Target finale (server) : runtime minimo che esegue tsx sul server, contiene ui/dist
+# Target finale (server) : single-container, serve API+WS sul :3000 e la ui/dist
+#                          statica dalla stessa origin. UI usa URL relativi (vedi
+#                          ui/src/site.ts) quindi nessuna config aggiuntiva serve.
 # Target alternativo (ui): runtime separato per servire ui/dist via vite preview
-#
-# I due target sono usati da docker-compose.yml come servizi distinti
-# (tharvel-server su :3000, tharvel-ui su :5173). In una fase successiva
-# valuteremo il single-container (server che serve anche ui/dist statica)
-# quando l'UI avrà la base URL relativa configurata.
+#                          (legacy, mantenuto per docker-compose dev).
 
 ############################################################
 # Base — utente non-root condiviso fra i target finali
@@ -58,6 +56,7 @@ COPY --from=server-deps /build/tharvel/server/node_modules ./server/node_modules
 COPY tharvel/package.json ./
 COPY tharvel/server/ ./server/
 COPY tharvel/shared/ ./shared/
+COPY --from=ui-builder /build/tharvel/ui/dist ./ui-dist
 RUN mkdir -p /data /var/tharvel/sites \
     && chown -R tharvel:tharvel /app /data /var/tharvel
 USER tharvel
