@@ -47,7 +47,23 @@ COPY tharvel/ui/package.json ui/
 RUN npm ci --workspace=server --include-workspace-root --include=dev
 
 ############################################################
-# Target: server runtime
+# Target: ui runtime — serve dist via vite preview (LEGACY, solo docker-compose dev)
+############################################################
+FROM base AS ui
+WORKDIR /app
+COPY --from=ui-builder /build/tharvel/ui/dist ./dist
+COPY --from=ui-builder /build/tharvel/node_modules ./node_modules
+COPY --from=ui-builder /build/tharvel/ui/package.json ./
+RUN chown -R tharvel:tharvel /app
+USER tharvel
+ENV NODE_ENV=production
+EXPOSE 5173
+# `vite preview` serve la dist con fallback SPA; `--host 0.0.0.0` per esporre fuori dal container.
+CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "5173"]
+
+############################################################
+# Target: server runtime — DEFAULT (ultimo stage, usato da Coolify se non specificato).
+# Single-container produzione: API + WS + ui/dist statica.
 ############################################################
 FROM base AS server
 WORKDIR /app
@@ -66,18 +82,3 @@ ENV NODE_ENV=production \
     THARVEL_SITES_ROOT=/var/tharvel/sites
 EXPOSE 3000
 CMD ["npx", "tsx", "server/index.ts"]
-
-############################################################
-# Target: ui runtime — serve dist via vite preview
-############################################################
-FROM base AS ui
-WORKDIR /app
-COPY --from=ui-builder /build/tharvel/ui/dist ./dist
-COPY --from=ui-builder /build/tharvel/node_modules ./node_modules
-COPY --from=ui-builder /build/tharvel/ui/package.json ./
-RUN chown -R tharvel:tharvel /app
-USER tharvel
-ENV NODE_ENV=production
-EXPOSE 5173
-# `vite preview` serve la dist con fallback SPA; `--host 0.0.0.0` per esporre fuori dal container.
-CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "5173"]
