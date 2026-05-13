@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import { WebSocketServer } from 'ws';
 import { createServer, IncomingMessage } from 'http';
 import dotenv from 'dotenv';
@@ -19,6 +20,17 @@ import { Type } from '@sinclair/typebox';
 import sharp from 'sharp';
 import { getDb } from './db/index.js';
 import { listSites, getSiteBySlug, getSiteByDomain, type Site } from './db/sites.js';
+import { getUserByEmail } from './db/users.js';
+import {
+  requireAuth,
+  requireAdmin,
+  verifyPassword,
+  verifySession,
+  issueSessionCookie,
+  clearSessionCookie,
+  parseSessionCookie,
+  publicUser,
+} from './auth.js';
 
 dotenv.config();
 
@@ -101,6 +113,46 @@ const wss = new WebSocketServer({ server });
 
 app.use(cors());
 app.use(express.json());
+app.use(cookieParser());
+
+// --- Strato 4 (auth) — endpoint identity. Vivono PRIMA delle route /site e dello
+// static UI così non vengono mangiati dal middleware-fallback SPA.
+app.post('/api/login', async (req, res) => {
+  const { email, password } = (req.body ?? {}) as { email?: unknown; password?: unknown };
+  if (typeof email !== 'string' || typeof password !== 'string') {
+    res.status(400).json({ error: 'email e password richiesti' });
+    return;
+  }
+  const user = getUserByEmail(email.trim().toLowerCase());
+  // Verifico la password anche se utente non esiste (tempo costante-ish, evita user enumeration).
+  const ok = user ? await verifyPassword(password, user.password_hash) : false;
+  if (!user || !ok) {
+    res.status(401).json({ error: 'credenziali invalide' });
+    return;
+  }
+  await issueSessionCookie(res, user);
+  res.json({ user: publicUser(user) });
+});
+
+app.post('/api/logout', (_req, res) => {
+  clearSessionCookie(res);
+  res.json({ ok: true });
+});
+
+app.get('/api/me', requireAuth, (req, res) => {
+  res.json({ user: req.user });
+});
+
+// Lista siti per la sidebar admin (decisione 6.1 del doc security: gated su role=admin).
+app.get('/api/sites', requireAuth, requireAdmin, (_req, res) => {
+  const sites = listSites().map((s) => ({
+    id: s.id,
+    slug: s.slug,
+    domain: s.domain,
+    framework: s.framework,
+  }));
+  res.json({ sites });
+});
 
 // Overlay Tharvel (CSS + JS per Alt+click) iniettato negli HTML dei siti che non
 // includono già lo snippet (es. build Astro). Caricato una volta sola al boot.
@@ -132,9 +184,16 @@ function injectOverlay(html: string): string {
 // Per Astro: HTML viene riscritto al volo (href/src + overlay). Asset → static puro.
 // Per html: tutto static (i siti Tharvel-aware hanno già lo script inline).
 // Mount a root: il proxy strippa BASE_PATH prima di arrivare qui.
+// Strato 4: richiede auth + per role=client il slug DEVE coincidere con user.slug.
+// (Senza questo check un client autenticato potrebbe visualizzare la preview di
+// un altro tenant manipolando l'URL dell'iframe.)
 const staticHandlerCache = new Map<string, express.RequestHandler>();
-app.use('/site/:slug', async (req, res, next) => {
+app.use('/site/:slug', requireAuth, async (req, res, next) => {
   const slug = req.params.slug;
+  if (req.user!.role !== 'admin' && req.user!.slug !== slug) {
+    res.status(403).send('forbidden');
+    return;
+  }
   const site = getSiteBySlug(slug);
   if (!site) {
     res.status(404).send(`Site '${slug}' not found`);
@@ -196,21 +255,41 @@ function sanitizeFileName(name: string): string {
   return base + parsed.ext.toLowerCase();
 }
 
-// Endpoint WS chiamato dal widget Tharvel: la connessione è scoped a uno specifico sito,
-// risolto via slug (?site=) o Host header → DB lookup.
+// Endpoint WS chiamato dal widget Tharvel: la connessione è autenticata via cookie
+// di sessione (Strato 4) e scoped per slug.
+// - role=client: lo slug viene dal token, l'eventuale ?site= è ignorato (no cross-tenant).
+// - role=admin: ?site= esplicito permesso (per la sidebar selettore siti),
+//   fallback host header come prima.
 wss.on('connection', async (ws, req) => {
-  const site = resolveSiteFromRequest(req);
+  const token = parseSessionCookie(req.headers.cookie);
+  const user = await verifySession(token);
+  if (!user) {
+    console.warn(`[WS] connessione rifiutata: non autenticato (url=${req.url})`);
+    ws.close(1008, 'unauthorized');
+    return;
+  }
+
+  let site: Site | null = null;
+  if (user.role === 'client') {
+    site = user.slug ? getSiteBySlug(user.slug) : null;
+  } else {
+    site = resolveSiteFromRequest(req);
+  }
   if (!site) {
     const reqHost = req.headers['x-forwarded-host'] || req.headers.host || '(none)';
-    console.warn(`[WS] connessione rifiutata: nessun sito per url=${req.url} host=${reqHost}`);
+    console.warn(
+      `[WS] connessione rifiutata: nessun sito per user=${user.email} role=${user.role} url=${req.url} host=${reqHost}`,
+    );
     ws.send(JSON.stringify({
       type: 'error',
-      message: 'Sito non riconosciuto. Specifica ?site=<slug> oppure configura il dominio nel DB.',
+      message: 'Sito non riconosciuto.',
     }));
     ws.close(1008, 'unknown site');
     return;
   }
-  console.log(`[WS] connessione accettata per sito '${site.slug}' (id=${site.id})`);
+  console.log(
+    `[WS] connessione accettata: user=${user.email} role=${user.role} site='${site.slug}' (id=${site.id})`,
+  );
 
   try {
     const authStorage = AuthStorage.create();

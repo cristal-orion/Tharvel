@@ -528,9 +528,9 @@ tecnologico nel doc principale.
 | # | Decisione | Stato | Note |
 |---|---|---|---|
 | 1 | SDK pi-coding-agent permette di disabilitare built-in tools? | **CHIUSA — sì** (2026-05-10) | Verificato in `dist/core/sdk.js`/`agent-session.js` v0.73.0: `noTools: "builtin"` + `customTools: [...]`. Niente fork SDK. |
-| 2 | JWT lib | **CHIUSA — `jose`** (2026-05-10) | Adottata come default. Salvo incompatibilità emerse in implementazione. |
-| 3 | Login flow client | password / magic link / OAuth | Password basta per Beta. Magic link migliore UX, costa SMTP. |
-| 4 | Admin auth separato da client? | sì / no | Sì, sempre. Niente reuse credenziali. |
+| 2 | JWT lib | **CHIUSA — `jose`** (2026-05-10) | Adottata come default. Implementata in `server/auth.ts` v2026-05-13: HS256 + cookie httpOnly + TTL 8h. |
+| 3 | Login flow client | **CHIUSA — password** (2026-05-13) | Argon2id hash. Magic link rimandato fuori-Beta (no SMTP). |
+| 4 | Admin auth separato da client? | **CHIUSA — sì** (2026-05-13) | Tabella `users` unica con campo `role`. Admin ha `slug=NULL` e accesso a tutti i siti; client ha `slug` not-null e WS/HTTP forzano quello slug ignorando `?site=`. |
 | 5 | Sandbox: bubblewrap o container? | **CHIUSA — `bwrap`** (2026-05-10) | Coerenza architetturale + leggerezza. Container rinviato a eventuale fase enterprise. |
 | 6 | Network policy nel sandbox | **CHIUSA — default-deny host + allow Git, no hostname-whitelist** (2026-05-10) | Vedi §6.6 per la formulazione completa. Bwrap non filtra rete; nftables sull'host blocca reti private; binari minimi + bash custom allowlisted danno confinamento sufficiente per Beta. |
 | 7 | User Linux per sito (Strato 2) — fallback? | costruire / saltare | Saltare: Strato 3a è ora fondazione tecnica, non c'è ragione di fallback su S2. |
@@ -552,6 +552,40 @@ tecnologico nel doc principale.
 ---
 
 ## 9. Riepilogo decisionale
+
+### Stato implementazione 2026-05-13
+
+**Strato 4 IMPLEMENTATO** — vedi commit fix(auth) Strato 4 nel repo.
+- `server/auth.ts`: jose HS256 sign/verify, argon2id password, cookie httpOnly
+  `tharvel-session` con TTL 8h, middleware `requireAuth`/`requireAdmin`.
+- `server/db/users.ts` + schema migration: tabella `users(email, password_hash,
+  role, slug, totp_secret)`. `totp_secret` nullable già dal day 1 per future 2FA.
+- `server/scripts/create-user.ts`: CLI per onboarding utenti (no signup
+  self-service in Beta).
+- Endpoint `POST /api/login`, `POST /api/logout`, `GET /api/me`, `GET /api/sites`
+  (admin-only per la sidebar selettore — chiude §6.1).
+- WS upgrade: token validato sul cookie, slug **forzato** dal token per
+  `role: client`, ignora `?site=`. Per `role: admin` `?site=` è permesso (sidebar).
+- HTTP `/site/:slug`: protetto da `requireAuth` + check `user.role === 'admin'
+  || user.slug === slug` (chiude il backdoor preview cross-tenant).
+- UI: `useAuth` composable singleton, `LoginForm.vue`, gate in `App.vue` root
+  (loading → user? TharvelApp : LoginForm). Sidebar admin con lista siti da
+  `/api/sites`. `useTharvelSession` accetta slug reattivo e riconnette WS al cambio.
+- Env var Coolify: `JWT_SECRET` (32 byte base64). `COOKIE_SECURE=true` da
+  abilitare quando si passa a HTTPS (per ora Beta su sslip.io HTTP).
+
+**Decisioni chiuse in implementazione** (vedi §7):
+- #3 login flow → password (argon2id), magic link rimandato.
+- #4 admin/client → stessa tabella users, role discriminante.
+
+**Cosa NON è incluso in questa pass implementativa**:
+- 2FA (campo `totp_secret` nullable nello schema ma flow non implementato).
+- Refresh token rotation (Beta usa JWT long-lived 8h senza refresh).
+- Password reset self-service (per ora CLI manuale).
+- M:N user→sites (Beta è 1:1, M:N quando serve).
+- Audit log persistente (§6.4 — rimandato).
+
+---
 
 Aggiornamento 2026-05-10: chiuse le decisioni 1, 2, 5 della tabella §7. Cambia
 l'ordine di esecuzione rispetto alla v0 del documento: **bwrap PRIMA come

@@ -1,5 +1,5 @@
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
-import { WS_URL } from '../site';
+import { ref, reactive, onMounted, onUnmounted, watch, type Ref } from 'vue';
+import { buildWsUrl } from '../site';
 
 export type Role = 'user' | 'ai' | 'system';
 export interface ChatMessage {
@@ -18,7 +18,7 @@ export interface ProjectFile {
   path: string;
 }
 
-export function useTharvelSession() {
+export function useTharvelSession(slug: Ref<string | null>) {
   const isConnected = ref(false);
   const isProcessing = ref(false);
   const messages = ref<ChatMessage[]>([
@@ -87,13 +87,45 @@ export function useTharvelSession() {
     scrollHooks.forEach((fn) => fn());
   };
 
+  // reconnectTimer ci permette di cancellare un retry pendente quando lo slug cambia
+  // (admin che switcha sito dalla sidebar): senza questo guard avremmo due ws aperti
+  // contemporaneamente e race su isConnected.
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let shouldReconnect = true;
+
+  const disconnect = () => {
+    shouldReconnect = false;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (ws) {
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
+    isConnected.value = false;
+  };
+
   const connect = () => {
-    ws = new WebSocket(WS_URL);
+    if (!slug.value) return; // nessuno slug attivo (es. admin senza sito selezionato)
+    shouldReconnect = true;
+    ws = new WebSocket(buildWsUrl(slug.value));
     ws.onopen = () => { isConnected.value = true; };
     ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
-    ws.onclose = () => { isConnected.value = false; setTimeout(connect, 3000); };
+    ws.onclose = () => {
+      isConnected.value = false;
+      if (shouldReconnect) reconnectTimer = setTimeout(connect, 3000);
+    };
     ws.onerror = () => { /* swallow; close will retry */ };
   };
+
+  // Riconnessione su cambio slug (per admin che switcha sito).
+  watch(slug, (next, prev) => {
+    if (next === prev) return;
+    disconnect();
+    if (next) connect();
+  });
 
   const sendPrompt = (text: string) => {
     if (!text.trim() || isProcessing.value) return;
@@ -149,7 +181,7 @@ export function useTharvelSession() {
   });
   onUnmounted(() => {
     window.removeEventListener('message', onElementMessage);
-    if (ws) ws.close();
+    disconnect();
   });
 
   return {

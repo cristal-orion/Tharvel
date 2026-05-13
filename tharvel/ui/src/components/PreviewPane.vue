@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { SelectedElement } from '../composables/useTharvelSession';
-import { SITE_BASE } from '../site';
+import { buildSiteBase } from '../site';
 
 const props = defineProps<{
+  slug: string;
   iframeNonce: number;
   selectedElement: SelectedElement | null;
 }>();
@@ -16,7 +17,7 @@ type Device = 'desktop' | 'tablet' | 'mobile';
 const device = ref<Device>('desktop');
 
 const iframeSrc = computed(
-  () => `${SITE_BASE}/index.html?_=${props.iframeNonce}`
+  () => `${buildSiteBase(props.slug)}/index.html?_=${props.iframeNonce}`
 );
 
 const widths: Record<Device, string> = {

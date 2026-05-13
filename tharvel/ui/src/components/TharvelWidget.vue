@@ -49,10 +49,10 @@
         </button>
       </div>
       <div class="preview-content">
-        <iframe 
-          ref="previewIframe" 
-          class="mock-iframe" 
-          :src="`${SITE_BASE}/index.html`"
+        <iframe
+          ref="previewIframe"
+          class="mock-iframe"
+          :src="`${siteBase}/index.html`"
           frameborder="0"
         ></iframe>
       </div>
@@ -113,7 +113,14 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
-import { SITE_BASE, WS_URL } from '../site';
+import { buildSiteBase, buildWsUrl } from '../site';
+
+// Componente standalone (POC pre-refactor multi-tenant): slug hardcoded a 'demo'.
+// Non è nell'import graph dell'app (TharvelApp.vue è quello in uso). Tenuto come
+// riferimento; può essere rimosso in un cleanup successivo.
+const HARDCODED_SLUG = 'demo';
+const siteBase = buildSiteBase(HARDCODED_SLUG);
+const wsUrl = buildWsUrl(HARDCODED_SLUG);
 
 const isConnected = ref(false);
 const isProcessing = ref(false);
@@ -132,7 +139,7 @@ let currentAiResponse = '';
 
 // Contenuto HTML dell'Iframe mock per testare il DOM targeting
 const connect = () => {
-  ws = new WebSocket(WS_URL);
+  ws = new WebSocket(wsUrl);
   
   ws.onopen = () => {
     isConnected.value = true;
