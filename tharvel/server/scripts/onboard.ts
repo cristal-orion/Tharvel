@@ -108,8 +108,8 @@ if (!SLUG_RE.test(slug)) {
 }
 
 const explicitFramework = values.framework as SiteFramework | undefined;
-if (explicitFramework && explicitFramework !== 'html' && explicitFramework !== 'astro') {
-  fail(`Framework "${explicitFramework}" non supportato (html|astro).`);
+if (explicitFramework && !['html', 'astro', 'vite'].includes(explicitFramework)) {
+  fail(`Framework "${explicitFramework}" non supportato (html|astro|vite).`);
 }
 
 // Apre/crea DB e verifica unicità slug PRIMA di toccare il filesystem,
@@ -149,8 +149,8 @@ if (values['local-path']) {
 const framework: SiteFramework = explicitFramework ?? detectFramework(targetDir);
 console.log(`[onboard] framework: ${framework}${explicitFramework ? ' (override)' : ' (auto)'}`);
 
-// --- Passo 4: build iniziale per SSG ---
-if (framework === 'astro' && !values['skip-build']) {
+// --- Passo 4: build iniziale per SSG/SPA (astro o vite generico) ---
+if ((framework === 'astro' || framework === 'vite') && !values['skip-build']) {
   console.log('[onboard] npm install + build iniziale (può richiedere 1-3 min)...');
   // `--include=dev`: il container Tharvel ha NODE_ENV=production che farebbe
   // saltare le devDependencies. Plugin Vite/Astro (es. @tailwindcss/vite)

@@ -13,7 +13,7 @@ import { parseArgs } from 'node:util';
 import { getDb } from '../db/index.js';
 import { createSite, getSiteBySlug, type SiteFramework } from '../db/sites.js';
 
-const SUPPORTED_FRAMEWORKS: SiteFramework[] = ['html', 'astro'];
+const SUPPORTED_FRAMEWORKS: SiteFramework[] = ['html', 'astro', 'vite'];
 
 function printUsage(): void {
   console.log(`Uso: register-site --slug <slug> --cwd <path> [opzioni]

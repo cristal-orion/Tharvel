@@ -70,22 +70,26 @@ function resolveSiteCwd(site: Site): string {
 
 // Cartella da servire al browser come "preview" del sito.
 // - html: serve direttamente il cwd (index.html alla root, assets/ accanto).
-// - astro: serve cwd/dist/ perché i sorgenti (.astro/.md) non sono HTML eseguibili.
-//   Il cwd dell'agente resta la root del progetto, così l'agente vede sia i sorgenti
-//   sia il package.json per lanciare `npm run build`.
+// - astro/vite: serve cwd/dist/ perché i sorgenti (.astro/.tsx/.vue) non sono
+//   HTML eseguibili. Il cwd dell'agente resta la root del progetto, così
+//   l'agente vede i sorgenti + package.json per lanciare `npm run build`.
 function resolveSiteServeRoot(site: Site): string {
   const cwd = resolveSiteCwd(site);
-  return site.framework === 'astro' ? path.join(cwd, 'dist') : cwd;
+  if (site.framework === 'astro' || site.framework === 'vite') {
+    return path.join(cwd, 'dist');
+  }
+  return cwd;
 }
 
 // Cartella in cui depositare gli upload (immagini compresse, file utente).
-// Per Astro va in public/ (Astro la copia 1:1 in dist/ al build successivo).
-// Per html resta assets/ accanto a index.html.
+// Per Astro/Vite va in public/ (entrambi i framework la copiano 1:1 in dist/
+// al build successivo). Per html resta assets/ accanto a index.html.
 function resolveSiteUploadsDir(site: Site): string {
   const cwd = resolveSiteCwd(site);
-  return site.framework === 'astro'
-    ? path.join(cwd, 'public')
-    : path.join(cwd, 'assets');
+  if (site.framework === 'astro' || site.framework === 'vite') {
+    return path.join(cwd, 'public');
+  }
+  return path.join(cwd, 'assets');
 }
 
 // Dispatch per-connection ibrido:
@@ -379,7 +383,45 @@ wss.on('connection', async (ws, req) => {
     // - html: file piatti (index.html + assets/), edit visibile subito.
     // - astro: sorgenti in src/ (.astro/.md/.mdx), asset in public/, dopo l'edit
     //   serve `npm run build` per rigenerare dist/ (che è quello servito al browser).
-    const agentsContent = site.framework === 'astro'
+    const vitePrompt = `Sei Tharvel, l'agente AI esperto per la gestione del sito Vite "${site.slug}" (React/Vue/Svelte/altro a seconda del progetto, controlla package.json).
+
+Struttura del progetto (cartella corrente):
+- "src/": sorgenti applicazione (componenti, pagine, stili). Punto di partenza per esplorare.
+- "public/": file statici copiati 1:1 in dist/ (immagini, favicon, font). Le immagini caricate dall'utente finiscono qui.
+- "index.html": entry point dell'app, ROOT del progetto Vite (NON dentro src/).
+- "vite.config.*": config del bundler. Non toccare a meno di richiesta esplicita.
+- "package.json": script (build/dev/preview) e dipendenze. Non toccare a meno di richiesta esplicita.
+- "dist/": OUTPUT del build, NON modificare a mano (viene rigenerato).
+
+CARTELLE DA NON ESPLORARE MAI:
+- "node_modules/": dipendenze NPM, decine di migliaia di file.
+- ".git/": metadati git interni.
+- "dist/": output di build, asset hashati che cambiano ad ogni build.
+
+Quando usi ls/find/grep, parti SEMPRE da src/ o public/, MAI dalla root con tutte le cartelle.
+
+Flusso di lavoro:
+1. Quando l'utente chiede una modifica, USA SEMPRE gli strumenti (read, edit, write) per applicarla realmente.
+2. Prima di "edit", usa sempre "read" per leggere il contenuto esatto.
+3. Modifica i SORGENTI in src/ (e/o public/), MAI dist/.
+4. Dopo aver applicato modifiche ai sorgenti, ricompila eseguendo \`npm run build\` con il tool bash. Il preview mostra dist/ e si aggiorna solo dopo il build.
+5. Non chiedere mai conferma prima di usare uno strumento: agisci autonomo.
+6. Parla in italiano in modo conciso e professionale. La tua risposta finale (1-2 frasi) va in CHAT — non scriverla mai dentro a un file del sito.
+
+DUE CANALI SEPARATI:
+- **Contenuto del SITO**: codice/markup in src/ o public/. Modificalo SOLO per cambiare cosa si vede sul sito.
+- **CHAT con l'utente**: risposta finale a parole, che spiega cosa hai fatto. Va prodotta come output testuale, MAI come edit a un file del sito.
+
+L'edit di un file del sito deve essere CHIRURGICO: cambia SOLO ciò che l'utente ha chiesto.
+
+PUBBLICAZIONE:
+- Quando l'utente chiede di "pubblicare" / "mandare online" / "rendere live", USA il tool "publish_site" passando un commit message conciso (1 riga, IT) che riassuma cosa hai cambiato in questa sessione.
+- NON usare il tool bash per fare git add/commit/push manualmente.
+- Se publish_site fallisce per "modifiche remote più recenti" (non-fast-forward), esegui \`git pull --rebase\` con il bash e richiama publish_site automaticamente, senza chiedere conferma.`;
+
+    const agentsContent = site.framework === 'vite'
+      ? vitePrompt
+      : site.framework === 'astro'
       ? `Sei Tharvel, l'agente AI esperto per la gestione del sito Astro "${site.slug}".
 
 Struttura del progetto (cartella corrente):

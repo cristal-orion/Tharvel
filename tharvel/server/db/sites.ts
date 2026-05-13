@@ -1,6 +1,9 @@
 import { getDb } from './index.js';
 
-export type SiteFramework = 'html' | 'astro';
+// 'html' = file statici già pronti (no build); 'astro' = Astro SSG con build
+// pipeline custom (system prompt agente ottimizzato); 'vite' = qualsiasi sito
+// Vite generico (React/Vue/Svelte) con build → dist/.
+export type SiteFramework = 'html' | 'astro' | 'vite';
 
 export interface Site {
   id: number;

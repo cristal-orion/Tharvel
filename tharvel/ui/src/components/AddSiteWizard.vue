@@ -48,7 +48,7 @@ const lookupBusy = ref(false);
 
 // Step 2: form (precompilato dal preview quando possibile)
 const slug = ref('');
-const framework = ref<'html' | 'astro' | ''>('');
+const framework = ref<'html' | 'astro' | 'vite' | ''>('');
 const clientEmail = ref('');
 const clientPassword = ref('');
 // Per il dominio cliente: l'utente sceglie tra i FQDN trovati su Coolify
@@ -278,6 +278,7 @@ function finish() {
           <select v-model="framework">
             <option value="">Auto-detect</option>
             <option value="astro">Astro</option>
+            <option value="vite">Vite (React/Vue/Svelte)</option>
             <option value="html">HTML statico</option>
           </select>
         </label>

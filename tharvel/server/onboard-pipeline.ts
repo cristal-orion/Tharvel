@@ -47,7 +47,11 @@ function detectFramework(siteDir: string): SiteFramework {
       devDependencies?: Record<string, string>;
     };
     const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    // Astro è prioritario perché di solito ha anche `vite` come transitive dep
+    // (Astro internamente usa Vite per il dev server e per il build dei chunk
+    // client). Senza questo ordine, un sito Astro verrebbe loggato come Vite.
     if (deps['astro']) return 'astro';
+    if (deps['vite']) return 'vite';
   } catch {
     // package.json non parsabile → fallback html
   }
@@ -118,7 +122,9 @@ export async function onboardSite(input: OnboardInput): Promise<OnboardOutput> {
 
     // 4. Framework detection + build SSG
     const framework: SiteFramework = input.framework ?? detectFramework(targetDir);
-    if (framework === 'astro' && !input.skipBuild) {
+    // Build pipeline identica per astro/vite (entrambi sfornano dist/).
+    // Solo `html` salta il build perché i file sono già statici.
+    if ((framework === 'astro' || framework === 'vite') && !input.skipBuild) {
       // `--include=dev`: NODE_ENV=production nel container Tharvel altrimenti
       // omette le devDependencies. Plugin Vite tipo @tailwindcss/vite stanno
       // in devDeps ma servono al build → senza questo, il build fallisce con
