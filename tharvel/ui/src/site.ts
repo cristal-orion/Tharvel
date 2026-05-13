@@ -11,8 +11,13 @@ export const SITE_SLUG = params.get('site') || 'demo';
 const isDev = import.meta.env.DEV;
 const envBase = import.meta.env.VITE_SERVER_BASE as string | undefined;
 export const SERVER_BASE = envBase || (isDev ? 'http://localhost:3000' : window.location.origin);
-export const SITE_BASE = `${SERVER_BASE}/site/${SITE_SLUG}`;
+
+// Prefix su cui Tharvel è montato sul dominio del cliente (vedi server/index.ts
+// e ui/vite.config.ts: deve coincidere ovunque). In dev punta allo stesso path
+// perché lo stesso server Express applica il mount anche con :3000.
+const BASE_PATH = '/tharveladmin';
+export const SITE_BASE = `${SERVER_BASE}${BASE_PATH}/site/${SITE_SLUG}`;
 
 const wsProto = SERVER_BASE.startsWith('https') ? 'wss' : 'ws';
 const wsHost = SERVER_BASE.replace(/^https?:\/\//, '');
-export const WS_URL = `${wsProto}://${wsHost}/?site=${encodeURIComponent(SITE_SLUG)}`;
+export const WS_URL = `${wsProto}://${wsHost}${BASE_PATH}/?site=${encodeURIComponent(SITE_SLUG)}`;

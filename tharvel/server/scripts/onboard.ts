@@ -171,8 +171,8 @@ const site = createSite({
 // --- Passo 6: riepilogo ---
 console.log('\n[onboard] ✓ sito registrato:');
 console.log(site);
-console.log(`\nTest UI:  http://localhost:5173/?site=${slug}`);
+console.log(`\nTest UI:  http://localhost:5173/tharveladmin/?site=${slug}`);
 if (values.domain) {
-  console.log(`Prod:     https://${values.domain}/tharveladmin  (richiede routing Traefik — TODO)`);
+  console.log(`Prod:     https://${values.domain}/tharveladmin  (richiede routing Traefik sul dominio cliente)`);
 }
 console.log('\nProssimo: avvia ./dev.sh dalla root di tharvel/ per testare.\n');

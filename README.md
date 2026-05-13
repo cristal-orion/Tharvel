@@ -98,7 +98,7 @@ npm run seed --workspace=server          # popola DB con i siti seed (demo, rest
 ./dev.sh                                 # avvia server :3000 + UI :5173 in due terminali
 ```
 
-Apri `http://localhost:5173/?site=<slug>` (default: `demo`).
+Apri `http://localhost:5173/tharveladmin/?site=<slug>` (default: `demo`).
 
 > **Conflitto porte:** il callback OAuth di Codex è hardcoded su `127.0.0.1:1455`. Se BrowserOS o altro processo la occupa, il login fallisce con messaggi fuorvianti. Diagnosi: `ss -ltnp | grep ':1455'`.
 
@@ -170,7 +170,7 @@ npm run onboard --workspace=server -- \
 3. Auto-detect framework (`astro` se `package.json` ha `astro` in deps, altrimenti `html`)
 4. Build iniziale per SSG (`npm install && npm run build`) — bypassabile con `--skip-build`
 5. INSERT nella tabella `sites`
-6. Stampa URL di test (`http://localhost:5173/?site=<slug>`)
+6. Stampa URL di test (`http://localhost:5173/tharveladmin/?site=<slug>`)
 
 **Da fare manualmente in prod (TODO automazione):**
 - Aggiungere routing Traefik per `https://<domain>/tharveladmin → tharvel-server:3000`
