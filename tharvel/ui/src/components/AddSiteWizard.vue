@@ -11,10 +11,21 @@ type Step = 'lookup' | 'form' | 'running' | 'done' | 'error';
 interface CoolifyAppPreview {
   uuid: string;
   name: string;
-  fqdn: string | null; // può essere "http://a.com,http://b.com/path"
+  fqdn: string | null; // backward-compat CSV
+  fqdns: string[];     // splittato, ogni entry include schema (https/http)
+  recommendedFqdn: string | null;
   git_repository: string | null;
   git_branch: string | null;
   build_pack: string | null;
+}
+
+// Parsa "https://plusvending.it" → { protocol: "https", host: "plusvending.it" }.
+// Se l'URL ha un path (es. "http://x.com/y"), il path viene scartato: lo riprendiamo
+// noi con `/tharveladmin`.
+function parseFqdnUrl(url: string): { protocol: 'http' | 'https'; host: string } {
+  const m = url.match(/^(https?):\/\/([^/]+)(\/.*)?$/i);
+  if (!m) return { protocol: 'http', host: url };
+  return { protocol: (m[1].toLowerCase() as 'http' | 'https'), host: m[2] };
 }
 
 interface OnboardResult {
@@ -40,7 +51,15 @@ const slug = ref('');
 const framework = ref<'html' | 'astro' | ''>('');
 const clientEmail = ref('');
 const clientPassword = ref('');
-const clientFqdn = ref('');
+// Per il dominio cliente: l'utente sceglie tra i FQDN trovati su Coolify
+// (radio button), oppure scrive manualmente. selectedFqdnUrl contiene la
+// stringa completa con schema (es. "https://plusvending.it"); host e
+// protocol vengono ricavati al submit.
+const selectedFqdnUrl = ref<string>(''); // valore selezionato/digitato
+const customFqdnMode = ref<boolean>(false); // true se l'admin sta scrivendo manualmente
+
+const clientFqdnHost = computed(() => parseFqdnUrl(selectedFqdnUrl.value).host);
+const clientFqdnProtocol = computed(() => parseFqdnUrl(selectedFqdnUrl.value).protocol);
 
 const result = ref<OnboardResult | null>(null);
 
@@ -55,22 +74,13 @@ function suggestSlug(repoUrl: string): string {
     .slice(0, 31);
 }
 
-// Estrae il PRIMO FQDN dal campo Coolify (campo che può listare più domini).
-// Per l'onboarding usiamo il primo come "dominio cliente di default" — l'admin
-// può comunque editare il campo nel form se serve.
-function primaryFqdn(fqdnField: string | null): string {
-  if (!fqdnField) return '';
-  const first = fqdnField.split(',')[0]?.trim() ?? '';
-  return first.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-}
-
 const passwordStrong = computed(() => clientPassword.value.length >= 8);
 const formValid = computed(
   () =>
     slug.value.length >= 2 &&
     clientEmail.value.includes('@') &&
     passwordStrong.value &&
-    clientFqdn.value.length > 3,
+    clientFqdnHost.value.length > 3,
 );
 
 async function doLookup() {
@@ -88,9 +98,12 @@ async function doLookup() {
       return;
     }
     preview.value = body;
-    // Precompila form
+    // Precompila form. Il server suggerisce già il FQDN "migliore" (dominio reale
+    // > sslip, https > http). Se admin lo cambia via radio button o lo edita,
+    // sovrascrive.
     slug.value = suggestSlug(repoInput.value);
-    clientFqdn.value = primaryFqdn(body.fqdn);
+    selectedFqdnUrl.value = body.recommendedFqdn ?? body.fqdns[0] ?? '';
+    customFqdnMode.value = body.fqdns.length === 0; // nessun FQDN su Coolify → modalità custom
     // build_pack=dockerfile non implica per forza Astro. Lasciamo l'auto-detect
     // al pipeline server-side. Qui mostriamo solo l'override esplicito.
     framework.value = '';
@@ -114,7 +127,8 @@ async function doOnboard() {
       body: JSON.stringify({
         slug: slug.value,
         repoUrl: repoInput.value.trim(),
-        clientFqdn: clientFqdn.value.trim(),
+        clientFqdn: clientFqdnHost.value,
+        protocol: clientFqdnProtocol.value,
         clientEmail: clientEmail.value.trim(),
         clientPassword: clientPassword.value,
         framework: framework.value || undefined,
@@ -147,6 +161,11 @@ Password: ${clientPassword.value}
 Da lì puoi chiedere le modifiche al sito via chat e pubblicarle quando sei pronto.
 
 Buon lavoro!`;
+});
+
+const adminUrlPreview = computed(() => {
+  if (!clientFqdnHost.value) return '';
+  return `${clientFqdnProtocol.value}://${clientFqdnHost.value}/tharveladmin`;
 });
 
 function copyToClipboard(text: string) {
@@ -217,11 +236,42 @@ function finish() {
           <small>Lettere minuscole, cifre, trattini. Usato come identificatore interno.</small>
         </label>
 
-        <label>
-          <span>Dominio cliente</span>
-          <input v-model="clientFqdn" placeholder="es. cliente.com o sslip.io" />
-          <small>Il dominio su cui il cliente accederà a Tharvel: <code>http://{{ clientFqdn }}/tharveladmin</code></small>
-        </label>
+        <div class="fqdn-block">
+          <span class="label-span">Dominio cliente (dove esporre /tharveladmin)</span>
+          <div v-if="!customFqdnMode && preview && preview.fqdns.length > 0" class="fqdn-options">
+            <label v-for="url in preview.fqdns" :key="url" class="radio-row">
+              <input
+                type="radio"
+                :value="url"
+                v-model="selectedFqdnUrl"
+              />
+              <span class="radio-url">{{ url }}</span>
+              <span v-if="url === preview.recommendedFqdn" class="badge">consigliato</span>
+            </label>
+            <button type="button" class="link-btn" @click="customFqdnMode = true">
+              ✎ Usa un dominio diverso
+            </button>
+          </div>
+          <div v-else class="fqdn-custom">
+            <input
+              v-model="selectedFqdnUrl"
+              placeholder="es. https://cliente.com"
+              type="url"
+            />
+            <button
+              v-if="preview && preview.fqdns.length > 0"
+              type="button"
+              class="link-btn"
+              @click="customFqdnMode = false; selectedFqdnUrl = preview?.recommendedFqdn ?? preview?.fqdns[0] ?? ''"
+            >
+              ← Torna ai domini suggeriti
+            </button>
+          </div>
+          <small v-if="adminUrlPreview">
+            URL admin: <code>{{ adminUrlPreview }}</code>
+          </small>
+          <small v-else class="weak">Seleziona o scrivi un dominio.</small>
+        </div>
 
         <label>
           <span>Framework (override)</span>
@@ -281,7 +331,7 @@ function finish() {
           <div>
             <b>Sito creato e routato.</b>
             <p v-if="result.tharvelDomainsUpdated">FQDN aggiunto all'app Tharvel su Coolify. Traefik attivo a breve.</p>
-            <p v-else class="warn">FQDN non aggiunto automaticamente (errore Coolify). Aggiungilo manualmente: <code>http://{{ clientFqdn }}/tharveladmin</code> nella app Tharvel.</p>
+            <p v-else class="warn">FQDN non aggiunto automaticamente (errore Coolify). Aggiungilo manualmente: <code>{{ adminUrlPreview }}</code> nella app Tharvel.</p>
           </div>
         </div>
 
@@ -395,6 +445,77 @@ label small code { font-family: var(--font-mono, monospace); color: var(--text-s
   gap: 6px;
   font-size: 13px;
 }
+
+.fqdn-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-soft, #555);
+}
+.label-span {
+  font-size: 13px;
+  color: var(--text-soft, #555);
+}
+.fqdn-options {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--bg-soft, #f8f8f8);
+  border: 1px solid var(--border, #e5e5e5);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+.radio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 13.5px;
+  color: var(--text, #111);
+  cursor: pointer;
+}
+.radio-row input[type='radio'] {
+  margin: 0;
+}
+.radio-url {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  flex: 1;
+}
+.badge {
+  font-size: 10.5px;
+  background: #dcfce7;
+  color: #166534;
+  padding: 1px 6px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+}
+.fqdn-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fqdn-custom input {
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--border, #d4d4d4);
+  border-radius: 7px;
+}
+.link-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-soft, #666);
+  font-size: 12px;
+  text-align: left;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: inherit;
+}
+.link-btn:hover { color: var(--text, #111); }
 .preview-row code {
   font-family: var(--font-mono, monospace);
   font-size: 12px;

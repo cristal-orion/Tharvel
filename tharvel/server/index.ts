@@ -22,7 +22,7 @@ import { getDb } from './db/index.js';
 import { listSites, getSiteBySlug, getSiteByDomain, type Site } from './db/sites.js';
 import { getUserByEmail } from './db/users.js';
 import { publishSite } from './publish.js';
-import { findApplicationByRepo, getApplication } from './coolify-api.js';
+import { findApplicationByRepo, getApplication, splitFqdns, pickRecommendedFqdn } from './coolify-api.js';
 import { onboardSite, OnboardError } from './onboard-pipeline.js';
 import {
   requireAuth,
@@ -174,10 +174,13 @@ app.get('/api/admin/coolify-app-by-repo', requireAuth, requireAdmin, async (req,
     }
     // Recupero dettagli (l'endpoint list non sempre ha tutti i campi popolati).
     const detail = await getApplication(app.uuid);
+    const fqdns = splitFqdns(detail.fqdn);
     res.json({
       uuid: detail.uuid,
       name: detail.name,
-      fqdn: detail.fqdn, // può contenere più domini separati da virgola
+      fqdn: detail.fqdn, // backward-compat: CSV originale
+      fqdns,             // array già splittato, preserva schema https/http
+      recommendedFqdn: pickRecommendedFqdn(fqdns),
       git_repository: detail.git_repository,
       git_branch: detail.git_branch,
       build_pack: detail.build_pack,

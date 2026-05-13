@@ -80,6 +80,32 @@ function normalizeRepoUrl(url: string): string {
     .replace(/^git@github\.com:/, '');
 }
 
+// Spezza il campo `fqdn` CSV di Coolify in array, preservando lo schema (http/https)
+// così il chiamante può sapere come è esposto ogni dominio. Filtra entries vuote.
+export function splitFqdns(fqdnField: string | null): string[] {
+  if (!fqdnField) return [];
+  return fqdnField
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+// Decide il FQDN "preferito" per il wizard di onboarding. Strategia:
+// 1) preferisci HTTPS (cert già configurato per quel host)
+// 2) preferisci NON-sslip.io (= dominio reale del cliente)
+// 3) in pari merito, primo della lista (ordine Coolify)
+// Ritorna null se la lista è vuota.
+export function pickRecommendedFqdn(fqdns: string[]): string | null {
+  if (fqdns.length === 0) return null;
+  const score = (url: string): number => {
+    let s = 0;
+    if (url.startsWith('https://')) s += 2;
+    if (!/sslip\.io(\/|$)/i.test(url)) s += 4;
+    return s;
+  };
+  return [...fqdns].sort((a, b) => score(b) - score(a))[0];
+}
+
 export async function findApplicationByRepo(
   repoUrl: string,
 ): Promise<CoolifyApplicationSummary | null> {
