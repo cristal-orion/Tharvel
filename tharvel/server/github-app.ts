@@ -24,14 +24,25 @@ let cachedKey: KeyObject | null = null;
 
 function getPrivateKey(): KeyObject {
   if (cachedKey) return cachedKey;
-  const raw = process.env.GITHUB_APP_PRIVATE_KEY;
-  if (!raw) {
-    throw new Error('GITHUB_APP_PRIVATE_KEY non impostata (env Coolify).');
+  // Preferito: chiave PEM base64-encoded come stringa single-line. Necessario
+  // perché Coolify deposita le env var in un file .env style docker-compose,
+  // che NON supporta valori multi-line (parsa ogni riga come KEY=value e va in
+  // errore sulle righe orfane della PEM).
+  const b64 = process.env.GITHUB_APP_PRIVATE_KEY_B64;
+  if (b64) {
+    const pem = Buffer.from(b64, 'base64').toString('utf-8');
+    cachedKey = createPrivateKey(pem);
+    return cachedKey;
   }
-  // Coolify a volte salva con \r\n o senza newline reali: normalizza.
-  const pem = raw.replace(/\\n/g, '\n').replace(/\r\n/g, '\n');
-  cachedKey = createPrivateKey(pem);
-  return cachedKey;
+  // Fallback: env var con PEM in chiaro (utile in dev locale con shell, dove il
+  // multi-line passa senza problemi).
+  const raw = process.env.GITHUB_APP_PRIVATE_KEY;
+  if (raw) {
+    const pem = raw.replace(/\\n/g, '\n').replace(/\r\n/g, '\n');
+    cachedKey = createPrivateKey(pem);
+    return cachedKey;
+  }
+  throw new Error('Né GITHUB_APP_PRIVATE_KEY_B64 né GITHUB_APP_PRIVATE_KEY impostate.');
 }
 
 function base64url(input: Buffer | string): string {
