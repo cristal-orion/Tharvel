@@ -22,6 +22,8 @@ import { getDb } from './db/index.js';
 import { listSites, getSiteBySlug, getSiteByDomain, type Site } from './db/sites.js';
 import { getUserByEmail } from './db/users.js';
 import { publishSite } from './publish.js';
+import { findApplicationByRepo, getApplication } from './coolify-api.js';
+import { onboardSite, OnboardError } from './onboard-pipeline.js';
 import {
   requireAuth,
   requireAdmin,
@@ -153,6 +155,78 @@ app.get('/api/sites', requireAuth, requireAdmin, (_req, res) => {
     framework: s.framework,
   }));
   res.json({ sites });
+});
+
+// Wizard onboarding (admin-only) — vedi project_tharvel memory.
+// Step "lookup": dato un URL repo, cerca l'app Coolify corrispondente e ritorna
+// FQDN/branch/framework così il form UI può precompilare il resto.
+app.get('/api/admin/coolify-app-by-repo', requireAuth, requireAdmin, async (req, res) => {
+  const url = String(req.query.url ?? '').trim();
+  if (!url) {
+    res.status(400).json({ error: 'parametro `url` richiesto (URL repo GitHub)' });
+    return;
+  }
+  try {
+    const app = await findApplicationByRepo(url);
+    if (!app) {
+      res.status(404).json({ error: 'Nessuna app Coolify trovata per questo repo. Crea prima l\'app su Coolify.' });
+      return;
+    }
+    // Recupero dettagli (l'endpoint list non sempre ha tutti i campi popolati).
+    const detail = await getApplication(app.uuid);
+    res.json({
+      uuid: detail.uuid,
+      name: detail.name,
+      fqdn: detail.fqdn, // può contenere più domini separati da virgola
+      git_repository: detail.git_repository,
+      git_branch: detail.git_branch,
+      build_pack: detail.build_pack,
+    });
+  } catch (e: any) {
+    res.status(502).json({ error: `Errore API Coolify: ${e?.message ?? String(e)}` });
+  }
+});
+
+// Step "esegui": pipeline completa di onboarding sito.
+app.post('/api/admin/onboard-site', requireAuth, requireAdmin, async (req, res) => {
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const slug = typeof body.slug === 'string' ? body.slug.trim() : '';
+  const repoUrl = typeof body.repoUrl === 'string' ? body.repoUrl.trim() : '';
+  const clientFqdn = typeof body.clientFqdn === 'string' ? body.clientFqdn.trim() : '';
+  const clientEmail = typeof body.clientEmail === 'string' ? body.clientEmail.trim() : '';
+  const clientPassword = typeof body.clientPassword === 'string' ? body.clientPassword : '';
+  const framework = body.framework as 'html' | 'astro' | undefined;
+
+  if (!slug || !repoUrl || !clientFqdn || !clientEmail || !clientPassword) {
+    res.status(400).json({
+      error: 'Campi richiesti: slug, repoUrl, clientFqdn, clientEmail, clientPassword.',
+    });
+    return;
+  }
+  if (clientPassword.length < 8) {
+    res.status(400).json({ error: 'Password troppo corta (min 8 caratteri).' });
+    return;
+  }
+
+  try {
+    const result = await onboardSite({
+      slug,
+      repoUrl,
+      clientFqdn,
+      framework,
+      clientEmail,
+      clientPassword,
+      sitesRoot: SITES_ROOT,
+    });
+    res.json(result);
+  } catch (e: any) {
+    if (e instanceof OnboardError) {
+      res.status(400).json({ error: e.message, step: e.step });
+    } else {
+      console.error('[onboard-site] errore inatteso:', e);
+      res.status(500).json({ error: `Errore inatteso: ${e?.message ?? String(e)}` });
+    }
+  }
 });
 
 // Overlay Tharvel (CSS + JS per Alt+click) iniettato negli HTML dei siti che non

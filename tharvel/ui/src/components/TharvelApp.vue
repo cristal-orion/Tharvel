@@ -4,6 +4,7 @@ import AppSidebar from './AppSidebar.vue';
 import PreviewPane from './PreviewPane.vue';
 import ChatPanel from './ChatPanel.vue';
 import SettingsModal from './SettingsModal.vue';
+import AddSiteWizard from './AddSiteWizard.vue';
 import { useTharvelSession } from '../composables/useTharvelSession';
 import { useAuth } from '../composables/useAuth';
 import { apiUrl } from '../site';
@@ -15,6 +16,7 @@ const { user, activeSlug, setAdminActiveSlug, logout } = useAuth();
 // se lo slug attivo non è ancora settato selezioniamo il primo della lista.
 const session = useTharvelSession(activeSlug);
 const settingsOpen = ref(false);
+const wizardOpen = ref(false);
 const isDragging = ref(false);
 
 interface SiteSummary {
@@ -88,6 +90,7 @@ const noSlug = computed(() => !activeSlug.value);
       @open-settings="settingsOpen = true"
       @clear-chat="session.clearChat()"
       @select-site="setAdminActiveSlug($event)"
+      @add-site="wizardOpen = true"
       @logout="logout"
     />
 
@@ -128,6 +131,12 @@ const noSlug = computed(() => !activeSlug.value);
       @close="settingsOpen = false"
       @login="onLogin"
       @set-key="onSetKey"
+    />
+
+    <AddSiteWizard
+      v-if="wizardOpen"
+      @close="wizardOpen = false"
+      @done="loadSitesForAdmin"
     />
 
     <transition name="drop">

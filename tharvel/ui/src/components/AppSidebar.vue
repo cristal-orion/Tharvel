@@ -25,6 +25,7 @@ const emit = defineEmits<{
   (e: 'open-settings'): void;
   (e: 'clear-chat'): void;
   (e: 'select-site', slug: string): void;
+  (e: 'add-site'): void;
   (e: 'logout'): void;
 }>();
 
@@ -78,6 +79,12 @@ const toggle = (path: string, current: string[]) => {
             </svg>
             <span class="site-slug">{{ s.slug }}</span>
             <span class="site-fw">{{ s.framework }}</span>
+          </button>
+          <button class="project-row add-site" @click="emit('add-site')" title="Onboarding nuovo sito">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <path d="M12 5 V19 M5 12 H19" />
+            </svg>
+            <span>Aggiungi sito…</span>
           </button>
         </div>
       </section>
@@ -241,6 +248,14 @@ const toggle = (path: string, current: string[]) => {
   font-family: var(--font-mono);
   text-transform: uppercase;
 }
+.add-site {
+  color: var(--text-mute);
+  font-style: italic;
+  margin-top: 4px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+.add-site:hover { color: var(--text); font-style: normal; }
 
 .empty {
   padding: 8px 12px;
