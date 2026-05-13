@@ -122,6 +122,7 @@ const noSlug = computed(() => !activeSlug.value);
         @send="session.sendPrompt($event)"
         @update:selected-model="session.setModel($event)"
         @open-settings="settingsOpen = true"
+        @upload-file="session.uploadFile($event)"
       />
     </template>
 

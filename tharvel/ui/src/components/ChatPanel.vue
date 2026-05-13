@@ -15,11 +15,25 @@ const emit = defineEmits<{
   (e: 'send', text: string): void;
   (e: 'update:selectedModel', val: string): void;
   (e: 'open-settings'): void;
+  (e: 'upload-file', file: File): void;
 }>();
 
 const input = ref('');
 const messagesEl = ref<HTMLElement | null>(null);
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
+const fileInputEl = ref<HTMLInputElement | null>(null);
+
+function pickFile() {
+  fileInputEl.value?.click();
+}
+
+function onPickFile(e: Event) {
+  const target = e.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (file) emit('upload-file', file);
+  // reset così lo stesso file può essere ri-selezionato in futuro
+  target.value = '';
+}
 
 const reasoning = ref<'low' | 'medium' | 'high'>('medium');
 const reasoningOpen = ref(false);
@@ -100,6 +114,23 @@ const formatMessage = (text: string) => {
         :disabled="!isConnected"
       />
       <div class="composer-bar">
+        <input
+          ref="fileInputEl"
+          type="file"
+          class="hidden-file-input"
+          @change="onPickFile"
+        />
+        <button
+          class="attach-btn"
+          @click="pickFile"
+          :disabled="!isConnected"
+          title="Allega file (immagini compresse e salvate in public/ o assets/)"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <path d="M12 5 V19 M5 12 H19" />
+          </svg>
+        </button>
+
         <ProviderPicker
           :selected="selectedModel"
           :auth="auth"
@@ -325,6 +356,27 @@ const formatMessage = (text: string) => {
   transition: background 0.15s;
 }
 .send:hover:not(:disabled) { background: #000; }
+
+.hidden-file-input { display: none; }
+.attach-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-soft);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.attach-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--text);
+}
+.attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .pop-enter-active, .pop-leave-active {
   transition: all 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
