@@ -4,6 +4,86 @@
   .tharvel-highlight { outline: 3px solid #10b981 !important; outline-offset: 2px !important; box-shadow: 0 0 15px rgba(16, 185, 129, 0.4) !important; position: relative; z-index: 9999; }
 </style>
 <script>
+  // Rewrite path assoluti per asset renderizzati DOPO il page load.
+  // Servizio: siti Vite/SPA renderizzano <img src="/logo.png"> via JS/React →
+  // browser cerca <host>/logo.png fuori dal namespace /tharveladmin/site/<slug>/
+  // → 404 (cade nello SPA fallback Tharvel UI). Il rewrite HTML server-side
+  // tocca solo l'HTML statico che torniamo; gli attributi creati a runtime li
+  // sistemiamo qui via MutationObserver.
+  (function () {
+    if (window.__tharvelAssetRewriteInstalled) return;
+    window.__tharvelAssetRewriteInstalled = true;
+
+    // Il prefix viene dal path della pagina, es. "/tharveladmin/site/twobee".
+    const match = location.pathname.match(/^(\/[^/]+\/site\/[^/]+)/);
+    if (!match) return; // non sotto namespace Tharvel, niente da fare
+    const PREFIX = match[1];
+
+    const needsRewrite = (v) => {
+      if (!v) return false;
+      // Solo root-relative; preserve URL assolute, protocol-relative, fragmenti, data:, blob:
+      if (!v.startsWith('/')) return false;
+      if (v.startsWith('//')) return false;
+      if (v.startsWith(PREFIX + '/') || v === PREFIX) return false;
+      return true;
+    };
+
+    const rewriteAttr = (el, attr) => {
+      const v = el.getAttribute && el.getAttribute(attr);
+      if (needsRewrite(v)) el.setAttribute(attr, PREFIX + v);
+    };
+
+    const rewriteSrcset = (el) => {
+      const v = el.getAttribute && el.getAttribute('srcset');
+      if (!v) return;
+      const out = v.split(',').map(part => {
+        const p = part.trim();
+        const [u, ...rest] = p.split(/\s+/);
+        return needsRewrite(u) ? [PREFIX + u, ...rest].join(' ') : p;
+      }).join(', ');
+      if (out !== v) el.setAttribute('srcset', out);
+    };
+
+    const SELECTORS = 'img[src],source[src],video[src],audio[src],script[src],link[href],a[href],iframe[src]';
+    const SRCSET_SELECTORS = 'img[srcset],source[srcset]';
+
+    const rewriteIn = (root) => {
+      if (!root || !root.querySelectorAll) return;
+      root.querySelectorAll(SELECTORS).forEach(el => {
+        rewriteAttr(el, el.tagName === 'LINK' || el.tagName === 'A' ? 'href' : 'src');
+      });
+      root.querySelectorAll(SRCSET_SELECTORS).forEach(rewriteSrcset);
+    };
+
+    // Prima passata immediata + dopo DOMContentLoaded (per asset già in HTML).
+    rewriteIn(document.documentElement);
+    document.addEventListener('DOMContentLoaded', () => rewriteIn(document.documentElement));
+
+    // Continuous: ogni nodo aggiunto dopo (es. React mount).
+    new MutationObserver(muts => {
+      for (const m of muts) {
+        for (const n of m.addedNodes) {
+          if (n.nodeType !== 1) continue;
+          rewriteAttr(n, 'src');
+          rewriteAttr(n, 'href');
+          if (n.hasAttribute && n.hasAttribute('srcset')) rewriteSrcset(n);
+          rewriteIn(n);
+        }
+        // Anche cambi di attributo (React aggiorna img.src dinamicamente)
+        if (m.type === 'attributes' && m.target && m.target.nodeType === 1) {
+          const a = m.attributeName;
+          if (a === 'src' || a === 'href') rewriteAttr(m.target, a);
+          else if (a === 'srcset') rewriteSrcset(m.target);
+        }
+      }
+    }).observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['src', 'href', 'srcset'],
+    });
+  })();
+
   // Logica MCP Pointer nativa: hover su Alt + click per selezionare un elemento e
   // notificare il widget parent via postMessage(THARVEL_ELEMENT_SELECTED).
   // Iniettato dal server Tharvel nei siti che non includono già lo snippet (es. build Astro).
