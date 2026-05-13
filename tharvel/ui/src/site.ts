@@ -12,10 +12,11 @@ const isDev = import.meta.env.DEV;
 const envBase = import.meta.env.VITE_SERVER_BASE as string | undefined;
 export const SERVER_BASE = envBase || (isDev ? 'http://localhost:3000' : window.location.origin);
 
-// Prefix su cui Tharvel è montato sul dominio del cliente (vedi server/index.ts
-// e ui/vite.config.ts: deve coincidere ovunque). In dev punta allo stesso path
-// perché lo stesso server Express applica il mount anche con :3000.
-const BASE_PATH = '/tharveladmin';
+// Prefix che il browser deve aggiungere alle URL verso il server.
+// In prod il proxy (Traefik via Coolify) intercetta /tharveladmin/* e lo strippa
+// prima di forwardare; in dev parliamo direttamente con Express :3000 senza
+// proxy, quindi nessun prefisso.
+const BASE_PATH = isDev ? '' : '/tharveladmin';
 export const SITE_BASE = `${SERVER_BASE}${BASE_PATH}/site/${SITE_SLUG}`;
 
 const wsProto = SERVER_BASE.startsWith('https') ? 'wss' : 'ws';

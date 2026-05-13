@@ -22,9 +22,14 @@ import { listSites, getSiteBySlug, getSiteByDomain, type Site } from './db/sites
 
 dotenv.config();
 
-// Prefisso path su cui Tharvel è montato sul dominio del cliente.
+// Prefisso path "esposto" su cui Tharvel è montato sul dominio del cliente.
+// Il proxy (Traefik configurato da Coolify) fa StripPrefix di questo path prima
+// di inoltrare al container, quindi il server riceve URL già senza prefisso e
+// resta montato a root. Il valore qui serve solo per RIEMETTERE il prefisso
+// negli HTML che torniamo al browser (rewriteHtmlForTenant): l'iframe della
+// preview deve generare link che il proxy possa rinviare di nuovo a Tharvel,
+// altrimenti caddono sul sito pubblicato del cliente.
 // Identico a `base` in ui/vite.config.ts e BASE_PATH in ui/src/site.ts.
-// Cambiare in tutti e tre i punti se si rinomina (rottura silenziosa garantita).
 const BASE_PATH = '/tharveladmin';
 
 // Inizializza DB SQLite (crea il file + schema al primo avvio).
@@ -88,19 +93,11 @@ function resolveSiteFromRequest(req: IncomingMessage): Site | null {
 
 const app = express();
 const server = createServer(app);
-// WS in modalità noServer: il filtro per path viene applicato sull'evento upgrade
-// così rifiutiamo subito le connessioni che non puntano a BASE_PATH (es. probe,
-// vecchie URL pre-prefix) invece di passare un ws aperto al codice di sessione.
-const wss = new WebSocketServer({ noServer: true });
-server.on('upgrade', (req, socket, head) => {
-  const pathname = new URL(req.url || '/', 'http://x').pathname;
-  // Accetta sia `/tharveladmin` sia `/tharveladmin/` (con query string è la stessa cosa).
-  if (pathname === BASE_PATH || pathname === `${BASE_PATH}/`) {
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-  } else {
-    socket.destroy();
-  }
-});
+// Il proxy fa StripPrefix di BASE_PATH per i tenant, quindi il WS handshake
+// arriva qui sempre su `/` (con query string `?site=...`). Niente filtro di path:
+// la logica di "sito sconosciuto" la gestisce resolveSiteFromRequest dentro
+// l'handler di connection.
+const wss = new WebSocketServer({ server });
 
 app.use(cors());
 app.use(express.json());
@@ -131,11 +128,12 @@ function injectOverlay(html: string): string {
   return html.replace(/<\/body>/i, `${THARVEL_OVERLAY}\n</body>`);
 }
 
-// Static serve scoped per tenant: BASE_PATH/site/<slug>/... → cwd del sito risolto via DB.
+// Static serve scoped per tenant: /site/<slug>/... → cwd del sito risolto via DB.
 // Per Astro: HTML viene riscritto al volo (href/src + overlay). Asset → static puro.
 // Per html: tutto static (i siti Tharvel-aware hanno già lo script inline).
+// Mount a root: il proxy strippa BASE_PATH prima di arrivare qui.
 const staticHandlerCache = new Map<string, express.RequestHandler>();
-app.use(`${BASE_PATH}/site/:slug`, async (req, res, next) => {
+app.use('/site/:slug', async (req, res, next) => {
   const slug = req.params.slug;
   const site = getSiteBySlug(slug);
   if (!site) {
@@ -528,21 +526,20 @@ Regole fondamentali:
 // Static serve della UI Vue (single-container in produzione).
 // Il Dockerfile target=server copia ui/dist da ui-builder in /app/ui-dist.
 // In dev questo path non esiste: il server salta lo static e l'UI viene servita da `vite dev` su :5173.
-// Mount sotto BASE_PATH così tutte le URL della UI sono coerenti col routing
-// path-based sul dominio cliente (es. industrial.com/tharveladmin).
+// Mount a root perché il proxy strippa BASE_PATH; gli asset emessi da Vite hanno
+// comunque link prefissati (`/tharveladmin/assets/...`), che il browser ripresenta
+// al proxy con il prefix → strip → arrivano qui come `/assets/...` ✓.
 const uiDistPath = path.resolve(__dirname, '..', 'ui-dist');
 if (existsSync(uiDistPath)) {
-  app.use(BASE_PATH, express.static(uiDistPath));
-  // SPA fallback: GET sotto BASE_PATH che non siano la preview tenant o file
-  // statici esistenti tornano index.html (Vue Router/state lato client).
+  app.use(express.static(uiDistPath));
+  // SPA fallback: GET non-static, non-preview → index.html (Vue gestisce lo state).
   // Express 5: `app.get('*', ...)` rompe path-to-regexp 8 → uso app.use middleware.
   app.use((req, res, next) => {
     if (req.method !== 'GET' && req.method !== 'HEAD') return next();
-    if (!req.path.startsWith(BASE_PATH)) return next();
-    if (req.path.startsWith(`${BASE_PATH}/site/`)) return next();
+    if (req.path.startsWith('/site/')) return next();
     res.sendFile(path.join(uiDistPath, 'index.html'));
   });
-  console.log(`[UI] static served from ${uiDistPath} on ${BASE_PATH}`);
+  console.log(`[UI] static served from ${uiDistPath} (exposed under ${BASE_PATH} via proxy)`);
 } else {
   console.log(`[UI] ui-dist non trovato (${uiDistPath}): dev mode, l'UI gira su vite :5173`);
 }
