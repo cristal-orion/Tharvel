@@ -11,6 +11,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'clear-element'): void;
+  (e: 'publish'): void;
 }>();
 
 type Device = 'desktop' | 'tablet' | 'mobile';
@@ -61,7 +62,7 @@ const widths: Record<Device, string> = {
         <span class="hint">
           <kbd>Alt</kbd> + click per selezionare un elemento
         </span>
-        <button class="publish">
+        <button class="publish" @click="emit('publish')" title="Pubblica le modifiche sul repo del sito">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
             <path d="M5 12 L9 16 L19 6" />
           </svg>

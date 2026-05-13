@@ -12,7 +12,12 @@
 # Base — utente non-root condiviso fra i target finali
 ############################################################
 FROM node:22-bookworm-slim AS base
-RUN groupadd -r tharvel && useradd -r -g tharvel -m -d /home/tharvel tharvel
+# `git` serve all'agente Pi (tool `bash`) per il flow publish: commit + push
+# verso il repo cliente. Auth via GitHub App installation token (vedi
+# tharvel/server/github-app.ts), niente credenziali persistite nel .git/config.
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -r tharvel && useradd -r -g tharvel -m -d /home/tharvel tharvel
 
 ############################################################
 # UI builder — Vue 3 + Vite → dist statica
@@ -76,9 +81,16 @@ COPY --from=ui-builder /build/tharvel/ui/dist ./ui-dist
 RUN mkdir -p /data /var/tharvel/sites \
     && chown -R tharvel:tharvel /app /data /var/tharvel
 USER tharvel
+# Identità git per i commit prodotti dall'agente durante il publish. Tieni una
+# email "fittizia ma valida" come autore — i commit sono firmati a nome del
+# bot, l'attribuzione al cliente reale arriva dal messaggio + dal contesto chat.
 ENV NODE_ENV=production \
     PORT=3000 \
     THARVEL_DB_PATH=/data/tharvel.db \
-    THARVEL_SITES_ROOT=/var/tharvel/sites
+    THARVEL_SITES_ROOT=/var/tharvel/sites \
+    GIT_AUTHOR_NAME="Tharvel Bot" \
+    GIT_AUTHOR_EMAIL="tharvel@cristal-orion.it" \
+    GIT_COMMITTER_NAME="Tharvel Bot" \
+    GIT_COMMITTER_EMAIL="tharvel@cristal-orion.it"
 EXPOSE 3000
 CMD ["npx", "tsx", "server/index.ts"]

@@ -21,6 +21,7 @@ import sharp from 'sharp';
 import { getDb } from './db/index.js';
 import { listSites, getSiteBySlug, getSiteByDomain, type Site } from './db/sites.js';
 import { getUserByEmail } from './db/users.js';
+import { publishSite } from './publish.js';
 import {
   requireAuth,
   requireAdmin,
@@ -338,14 +339,20 @@ ESEMPIO di errore da NON fare:
 - SBAGLIATO: scrivere in src/pages/index.astro un paragrafo tipo "Ho cambiato il titolo, ora la home dice Benvenuti, ho anche tradotto..."
 - CORRETTO: edit chirurgico di src/pages/index.astro che sostituisce SOLO il titolo con "Benvenuti", poi in chat un testo breve "Fatto, ho aggiornato il titolo della home."
 
-L'edit di un file del sito deve essere CHIRURGICO: cambia SOLO ciò che l'utente ha chiesto, non riscrivere intere pagine né aggiungere contenuti non richiesti.`
+L'edit di un file del sito deve essere CHIRURGICO: cambia SOLO ciò che l'utente ha chiesto, non riscrivere intere pagine né aggiungere contenuti non richiesti.
+
+PUBBLICAZIONE:
+- Quando l'utente chiede di "pubblicare", "mandare online", "rendere live", "fare push" le modifiche, USA il tool "publish_site" passando un commit message conciso (1 riga, IT) che riassuma cosa hai cambiato in questa sessione.
+- NON usare il tool bash per fare git add/commit/push manualmente: il tool publish_site gestisce auth, branch e push in modo sicuro.
+- Dopo che il tool ritorna, riporta in chat l'esito (es. "Pubblicato. Il sito verrà rideployato a breve" oppure "Niente da pubblicare").`
       : `Sei Tharvel, l'agente AI esperto per la gestione del sito "${site.slug}".
 Regole fondamentali:
 1. I file del sito web si trovano nella tua cartella corrente. Il file HTML principale è "index.html" e le immagini sono in "assets/".
 2. Quando l'utente chiede una modifica, USA SEMPRE gli strumenti (read, edit) per applicarla realmente. Non limitarti a spiegare a parole come fare, FALLO TU fisicamente usando i tool.
 3. Prima di usare "edit", usa sempre "read" per leggere il contenuto esatto e non sbagliare il rimpiazzo.
 4. Non chiedere mai conferma prima di usare uno strumento: agisci direttamente in modo autonomo.
-5. Parla in italiano in modo conciso e professionale. Al termine della modifica avvisa l'utente.`;
+5. Parla in italiano in modo conciso e professionale. Al termine della modifica avvisa l'utente.
+6. Quando l'utente chiede di "pubblicare" / "mandare online", usa il tool "publish_site" con un commit message conciso che riassume le modifiche. NON usare il bash per git add/commit/push.`;
 
     const loader = new DefaultResourceLoader({
       cwd: sitePath,
@@ -423,6 +430,44 @@ Regole fondamentali:
       }
     });
 
+    // Tool publish: commit + push autenticato via GitHub App. Lo slug e il
+    // sitePath sono catturati dalla closure → niente parametro lato agente,
+    // niente possibilità per l'agente di pubblicare un sito che non sia il suo.
+    const publishTool = defineTool({
+      name: "publish_site",
+      label: "Pubblica modifiche",
+      description:
+        `Pubblica le modifiche al sito "${site.slug}": stage di tutto il working tree, ` +
+        `commit con il messaggio fornito, push autenticato sul repo GitHub del cliente. ` +
+        `Usalo SOLO quando l'utente chiede esplicitamente di "pubblicare" / "mandare online" ` +
+        `le modifiche. Non chiedere conferma all'utente prima di chiamarlo, ma scegli un ` +
+        `commit message conciso (1 riga, IT) che riassuma le modifiche fatte in questa sessione.`,
+      parameters: Type.Object({
+        commitMessage: Type.String({
+          description:
+            "Messaggio di commit, 1 riga, in italiano, che riassume le modifiche di questa sessione. Es: 'Aggiornato titolo della home e cambiato testo hero'.",
+        }),
+      }),
+      execute: async (_toolCallId, params) => {
+        try {
+          const result = await publishSite(site, SITES_ROOT, params.commitMessage);
+          return {
+            content: [{ type: "text", text: result.message }],
+            details: {
+              ok: result.ok,
+              pushed: result.pushed,
+              commitSha: result.commitSha ?? null,
+            },
+          };
+        } catch (e: any) {
+          return {
+            content: [{ type: "text", text: `Errore publish: ${e?.message ?? String(e)}` }],
+            details: { ok: false, pushed: false, commitSha: null },
+          };
+        }
+      },
+    });
+
     // Nell'SDK 0.73 `tools` è string[] di nomi attivi; i tool built-in (read/bash/edit/write)
     // vengono creati internamente con il `cwd` passato qui sopra. Omettendo `tools` l'SDK
     // attiva tutti i default automaticamente.
@@ -432,7 +477,7 @@ Regole fondamentali:
       authStorage,
       modelRegistry,
       cwd: sitePath,
-      customTools: [processUploadTool],
+      customTools: [processUploadTool, publishTool],
       resourceLoader: loader,
     });
 

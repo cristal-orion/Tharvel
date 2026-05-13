@@ -107,6 +107,7 @@ const noSlug = computed(() => !activeSlug.value);
         :iframe-nonce="session.iframeNonce.value"
         :selected-element="session.selectedElement.value"
         @clear-element="session.selectedElement.value = null"
+        @publish="session.sendPrompt('Pubblica le modifiche al sito.')"
       />
 
       <ChatPanel
