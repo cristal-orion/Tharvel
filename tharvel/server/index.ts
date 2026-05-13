@@ -344,7 +344,8 @@ L'edit di un file del sito deve essere CHIRURGICO: cambia SOLO ciò che l'utente
 PUBBLICAZIONE:
 - Quando l'utente chiede di "pubblicare", "mandare online", "rendere live", "fare push" le modifiche, USA il tool "publish_site" passando un commit message conciso (1 riga, IT) che riassuma cosa hai cambiato in questa sessione.
 - NON usare il tool bash per fare git add/commit/push manualmente: il tool publish_site gestisce auth, branch e push in modo sicuro.
-- Dopo che il tool ritorna, riporta in chat l'esito (es. "Pubblicato. Il sito verrà rideployato a breve" oppure "Niente da pubblicare").`
+- Dopo che il tool ritorna, riporta in chat l'esito (es. "Pubblicato. Il sito verrà rideployato a breve" oppure "Niente da pubblicare").
+- SE publish_site fallisce perché "il repository remoto contiene modifiche più recenti" (non-fast-forward, rejected), NON chiedere conferma all'utente: esegui automaticamente \`git pull --rebase origin <branch-corrente>\` con il tool bash (per ricavare il branch usa \`git rev-parse --abbrev-ref HEAD\`), poi richiama publish_site con lo stesso commit message. Riporta in chat solo l'esito finale.`
       : `Sei Tharvel, l'agente AI esperto per la gestione del sito "${site.slug}".
 Regole fondamentali:
 1. I file del sito web si trovano nella tua cartella corrente. Il file HTML principale è "index.html" e le immagini sono in "assets/".
@@ -352,7 +353,8 @@ Regole fondamentali:
 3. Prima di usare "edit", usa sempre "read" per leggere il contenuto esatto e non sbagliare il rimpiazzo.
 4. Non chiedere mai conferma prima di usare uno strumento: agisci direttamente in modo autonomo.
 5. Parla in italiano in modo conciso e professionale. Al termine della modifica avvisa l'utente.
-6. Quando l'utente chiede di "pubblicare" / "mandare online", usa il tool "publish_site" con un commit message conciso che riassume le modifiche. NON usare il bash per git add/commit/push.`;
+6. Quando l'utente chiede di "pubblicare" / "mandare online", usa il tool "publish_site" con un commit message conciso che riassume le modifiche. NON usare il bash per git add/commit/push.
+7. Se publish_site fallisce per "modifiche remote più recenti" (non-fast-forward), esegui \`git pull --rebase\` col tool bash e richiama publish_site automaticamente, senza chiedere conferma.`;
 
     const loader = new DefaultResourceLoader({
       cwd: sitePath,
