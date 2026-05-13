@@ -282,9 +282,12 @@ app.use('/site/:slug', requireAuth, async (req, res, next) => {
     return;
   }
 
-  // Per Astro intercettiamo solo le richieste HTML (root, /pagina/, *.html).
-  // Tutto il resto (asset _astro/, immagini, font) passa allo static handler sotto.
-  if (site.framework === 'astro') {
+  // Per Astro/Vite intercettiamo solo le richieste HTML (root, /pagina/, *.html).
+  // Tutto il resto (asset _astro/, /assets/, immagini, font) passa allo static handler sotto.
+  // Vite genera un solo index.html in dist/, ma gli `href`/`src` interni sono
+  // assoluti (`/favicon.svg`, `/assets/...`) → senza rewrite escono dal namespace
+  // /tharveladmin/site/<slug>/ e tornano 404.
+  if (site.framework === 'astro' || site.framework === 'vite') {
     const reqPath = req.path;
     const isHtml =
       reqPath === '/' ||
