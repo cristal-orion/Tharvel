@@ -119,13 +119,20 @@ export async function onboardSite(input: OnboardInput): Promise<OnboardOutput> {
     // 4. Framework detection + build SSG
     const framework: SiteFramework = input.framework ?? detectFramework(targetDir);
     if (framework === 'astro' && !input.skipBuild) {
-      const installRes = await run('npm', ['install'], { cwd: targetDir });
+      // `--include=dev`: NODE_ENV=production nel container Tharvel altrimenti
+      // omette le devDependencies. Plugin Vite tipo @tailwindcss/vite stanno
+      // in devDeps ma servono al build → senza questo, il build fallisce con
+      // "Cannot find module" import dell'astro.config.
+      const installRes = await run('npm', ['install', '--include=dev'], { cwd: targetDir });
       if (installRes.code !== 0) {
         throw new OnboardError('build', `npm install fallito: ${installRes.stderr.slice(-400)}`);
       }
       const buildRes = await run('npm', ['run', 'build'], { cwd: targetDir });
       if (buildRes.code !== 0) {
-        throw new OnboardError('build', `npm run build fallito: ${buildRes.stderr.slice(-400)}`);
+        // Include sia stderr sia stdout: Astro stampa l'errore su stdout dopo
+        // il banner di build, lo stderr da solo non racconta la storia.
+        const tail = (buildRes.stdout + buildRes.stderr).slice(-600);
+        throw new OnboardError('build', `npm run build fallito: ${tail}`);
       }
     }
 
