@@ -59,24 +59,39 @@ export async function publishSite(
     return { ok: false, message: `git add fallito: ${addRes.stderr.trim()}`, pushed: false };
   }
 
-  // 2) Verifica se c'è qualcosa da committare (status --porcelain vuoto → niente).
+  // 2) Stato: c'è qualcosa di nuovo da committare? Ci sono commit locali non pushati?
+  // Trattiamo i due casi separatamente: un fallimento di push precedente lascia
+  // HEAD ahead di origin senza nuovi changes, e dobbiamo poter rilanciare il push.
   const statusRes = await run('git', ['status', '--porcelain'], { cwd });
-  if (statusRes.stdout.trim().length === 0) {
+  const dirty = statusRes.stdout.trim().length > 0;
+
+  let aheadCount = 0;
+  const aheadRes = await run('git', ['rev-list', '--count', '@{upstream}..HEAD'], { cwd });
+  if (aheadRes.code === 0) {
+    aheadCount = parseInt(aheadRes.stdout.trim(), 10) || 0;
+  }
+  // Se @{upstream} non è configurato, rev-list fallisce e aheadCount resta 0:
+  // in quel caso il primo push imposterà l'upstream (vedi sotto).
+
+  if (!dirty && aheadCount === 0) {
     return {
       ok: true,
-      message: 'Nessuna modifica da pubblicare (working tree pulito).',
+      message: 'Nessuna modifica da pubblicare (working tree pulito, nessun commit pendente).',
       pushed: false,
     };
   }
 
-  // 3) Commit.
-  const cleanMsg = commitMessage.trim() || 'Tharvel publish';
-  const commitRes = await run('git', ['commit', '-m', cleanMsg], { cwd });
-  if (commitRes.code !== 0) {
-    return { ok: false, message: `git commit fallito: ${commitRes.stderr.trim()}`, pushed: false };
+  // 3) Commit (solo se ci sono modifiche staged).
+  let commitSha: string | undefined;
+  if (dirty) {
+    const cleanMsg = commitMessage.trim() || 'Tharvel publish';
+    const commitRes = await run('git', ['commit', '-m', cleanMsg], { cwd });
+    if (commitRes.code !== 0) {
+      return { ok: false, message: `git commit fallito: ${commitRes.stderr.trim()}`, pushed: false };
+    }
   }
   const shaRes = await run('git', ['rev-parse', '--short', 'HEAD'], { cwd });
-  const commitSha = shaRes.stdout.trim();
+  commitSha = shaRes.stdout.trim();
 
   // 4) Push: token fresco, URL temporaneo come argomento (non lo salviamo in
   //    .git/config per evitare token persistente dopo che è scaduto).

@@ -13,9 +13,12 @@
 ############################################################
 FROM node:22-bookworm-slim AS base
 # `git` serve all'agente Pi (tool `bash`) per il flow publish: commit + push
-# verso il repo cliente. Auth via GitHub App installation token (vedi
-# tharvel/server/github-app.ts), niente credenziali persistite nel .git/config.
-RUN apt-get update && apt-get install -y --no-install-recommends git \
+# verso il repo cliente. `ca-certificates` serve a git/libcurl per validare
+# il certificato TLS di github.com (Debian slim non lo include di default
+# → push HTTPS fallisce con "server certificate verification failed").
+# Auth git via GitHub App installation token (vedi tharvel/server/github-app.ts),
+# niente credenziali persistite nel .git/config.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -r tharvel && useradd -r -g tharvel -m -d /home/tharvel tharvel
 
