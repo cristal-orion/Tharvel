@@ -11,6 +11,7 @@ import { createUser, getUserByEmail, type UserRole } from './db/users.js';
 import { hashPassword } from './auth.js';
 import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
 import { addDomainToTharvel } from './coolify-api.js';
+import { ensurePiSettings } from './pi-settings.js';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
 
@@ -120,7 +121,15 @@ export async function onboardSite(input: OnboardInput): Promise<OnboardOutput> {
     }
     cloneCompleted = true;
 
-    // 4. Framework detection + build SSG
+    // 4. Config Pi per-sito (.pi/settings.json + symlink npm condiviso).
+    // Non-blocking se il shared dir non esiste — l'agente funziona comunque,
+    // image_generation non sarà disponibile.
+    const piRes = await ensurePiSettings(targetDir);
+    if (!piRes.ok) {
+      console.warn(`[onboard] ensurePiSettings: ${piRes.message}`);
+    }
+
+    // 5. Framework detection + build SSG
     const framework: SiteFramework = input.framework ?? detectFramework(targetDir);
     // Build pipeline identica per astro/vite (entrambi sfornano dist/).
     // Solo `html` salta il build perché i file sono già statici.

@@ -83,6 +83,15 @@ COPY tharvel/shared/ ./shared/
 COPY --from=ui-builder /build/tharvel/ui/dist ./ui-dist
 RUN mkdir -p /data /var/tharvel/sites \
     && chown -R tharvel:tharvel /app /data /var/tharvel
+# Pre-installa i pi-package shared (image_generation + view_image dal package
+# @capyup/pi-codex-image). Vivono in /opt/pi-extensions/.pi/, montati read-only
+# nel symlink .pi/npm di ogni sito (vedi server/pi-settings.ts) per evitare
+# 50MB di node_modules duplicati per ogni sito cliente.
+# Eseguito PRIMA dello USER tharvel così la cartella è scrivibile, poi chown.
+RUN mkdir -p /opt/pi-extensions \
+    && cd /opt/pi-extensions \
+    && /app/node_modules/.bin/pi install -l npm:@capyup/pi-codex-image \
+    && chown -R tharvel:tharvel /opt/pi-extensions
 USER tharvel
 # Identità git per i commit prodotti dall'agente durante il publish. Tieni una
 # email "fittizia ma valida" come autore — i commit sono firmati a nome del
