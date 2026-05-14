@@ -640,6 +640,21 @@ Regole fondamentali:
     // Per assicurarci che i file extension di .pi vengano caricati e la cache aggiornata:
     await loader.reload();
 
+    // Log diagnostico: quali extension ha caricato il loader per questo sito,
+    // e quali errori ha registrato durante il discovery. Utile per capire perché
+    // pi-codex-image non si registra (es. settings.json non letto, symlink non
+    // risolto, extension file non parseable).
+    const extRes = loader.getExtensions();
+    console.log(
+      `[PI ext] '${site.slug}': loaded ${extRes.extensions.length} extension(s)` +
+        (extRes.extensions.length > 0
+          ? ': ' + extRes.extensions.map((e: any) => e.path).join(', ')
+          : '')
+    );
+    if (extRes.errors.length > 0) {
+      console.warn(`[PI ext] '${site.slug}': errors:`, JSON.stringify(extRes.errors, null, 2));
+    }
+
     // Cartella default per gli upload del sito corrente (assets/ per html, public/ per astro).
     const defaultUploadsDir = resolveSiteUploadsDir(site);
     const defaultUploadsRel = path.relative(sitePath, defaultUploadsDir) || '.';
