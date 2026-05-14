@@ -1,10 +1,16 @@
 // Auto-commit per turn dell'agente Tharvel (vedi §6.4.1 progetto-tharvel.md).
 //
-// Triggerato da `agent_end` dentro il WS handler. Criteri "turn riuscito" ANDed:
-//   - nessun tool_execution_end con isError nel turno
-//   - working tree dirty (l'agente ha davvero toccato file utente)
+// Triggerato da `agent_end` dentro il WS handler. Criterio di commit:
+// working tree dirty (l'agente ha davvero toccato file utente).
 //
-// Se i criteri passano: stage + commit su branch `preview` con template
+// NB: avevamo provato anche un criterio "nessun tool_execution_end con isError",
+// ma in pratica gli agenti esplorano con bash (`ls path-inesistente`) e fanno
+// fallire comandi senza che sia un vero fallimento del turno — finchè il file
+// finale è stato editato e l'utente lo vede in preview, vogliamo committarlo
+// in modo da poter offrire Annulla/Ripristina. Il `dirty-check` è il singolo
+// criterio di verità: niente modifiche → niente revisione.
+//
+// Se il check passa: stage + commit su branch `preview` con template
 // "<Verbo> <prompt 60 char>" + INSERT in tabella site_revisions.
 
 import { spawn } from 'node:child_process';
@@ -54,15 +60,17 @@ export interface AutoCommitContext {
   site: Site;
   sitePath: string;
   userPrompt: string;
+  // Conservato solo per logging diagnostico: NON blocca più il commit (vedi
+  // commento in cima al file).
   turnHadError: boolean;
 }
 
 export async function autoCommitTurn(ctx: AutoCommitContext): Promise<AutoCommitResult> {
-  if (ctx.turnHadError) {
-    return { committed: false, reason: 'turn errored (skip auto-commit)' };
-  }
   if (!ctx.userPrompt.trim()) {
     return { committed: false, reason: 'no user prompt to derive message from' };
+  }
+  if (ctx.turnHadError) {
+    console.log(`[AUTO-COMMIT] '${ctx.site.slug}': turn aveva errori tool, committo lo stesso se dirty`);
   }
 
   // Non è un repo git → skip silenzioso (es. sito 'demo' senza .git).
