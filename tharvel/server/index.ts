@@ -765,6 +765,14 @@ Regole fondamentali:
       resourceLoader: loader,
     });
 
+    // Log diagnostico: tool effettivamente attivi sulla session.
+    try {
+      const activeTools = (session as any).getActiveToolNames?.() ?? [];
+      console.log(`[PI tools] '${site.slug}': active=${JSON.stringify(activeTools)}`);
+    } catch (e) {
+      console.warn(`[PI tools] '${site.slug}': unable to list active tools:`, e);
+    }
+
     const sendFilesList = async () => {
       try {
         // FIX: mostriamo i file da site/assets (html) o site/public (astro), non da root/assets
