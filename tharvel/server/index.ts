@@ -24,6 +24,16 @@ import { getUserByEmail } from './db/users.js';
 import { publishSite } from './publish.js';
 import { findApplicationByRepo, getApplication, splitFqdns, pickRecommendedFqdn } from './coolify-api.js';
 import { onboardSite, OnboardError } from './onboard-pipeline.js';
+import { autoCommitTurn } from './auto-commit.js';
+import { ensurePreviewBranch } from './preview-branch.js';
+import {
+  getLastTurnRevision,
+  getRevisionById,
+  listRevisionsBySite,
+  deleteRevisionById,
+  deleteTurnsFromId,
+} from './db/revisions.js';
+import { resetPreviewTo, rebuildSite } from './revisions-ops.js';
 import {
   requireAuth,
   requireAdmin,
@@ -159,6 +169,127 @@ app.get('/api/sites', requireAuth, requireAdmin, (_req, res) => {
     framework: s.framework,
   }));
   res.json({ sites });
+});
+
+// --- Storico modifiche / undo / restore (Strato Undo).
+// Auth: admin OR client.slug === :slug (stesso pattern dell'iframe /site/:slug).
+function canAccessSlug(reqUser: { role: string; slug?: string | null }, slug: string): boolean {
+  return reqUser.role === 'admin' || reqUser.slug === slug;
+}
+
+app.get('/api/session/:slug/history', requireAuth, (req, res) => {
+  const slug = req.params.slug;
+  if (!canAccessSlug(req.user!, slug)) {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+  const site = getSiteBySlug(slug);
+  if (!site) {
+    res.status(404).json({ error: 'site not found' });
+    return;
+  }
+  const rows = listRevisionsBySite(site.id, 100);
+  res.json({
+    revisions: rows.map((r) => ({
+      id: r.id,
+      commit_sha: r.commit_sha,
+      parent_sha: r.parent_sha,
+      user_prompt: r.user_prompt,
+      summary: r.summary,
+      files_changed: JSON.parse(r.files_changed || '[]'),
+      kind: r.kind,
+      superseded: r.superseded_at !== null,
+      created_at: r.created_at,
+    })),
+  });
+});
+
+// Annulla l'ultimo turn ripristinabile: reset --hard al parent dell'ultima
+// revisione 'turn' non superseded. Cancella quella riga dal DB.
+app.post('/api/session/:slug/undo', requireAuth, async (req, res) => {
+  const slug = req.params.slug;
+  if (!canAccessSlug(req.user!, slug)) {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+  const site = getSiteBySlug(slug);
+  if (!site) {
+    res.status(404).json({ error: 'site not found' });
+    return;
+  }
+  const last = getLastTurnRevision(site.id);
+  if (!last) {
+    res.status(409).json({ error: 'Nessuna modifica da annullare.' });
+    return;
+  }
+  if (!last.parent_sha) {
+    res.status(409).json({ error: 'Impossibile annullare: questa è la prima modifica registrata.' });
+    return;
+  }
+  const cwd = resolveSiteCwd(site);
+  const reset = await resetPreviewTo(cwd, last.parent_sha);
+  if (!reset.ok) {
+    res.status(500).json({ error: reset.message });
+    return;
+  }
+  deleteRevisionById(last.id, site.id);
+  const rebuild = await rebuildSite(cwd, site.framework);
+  res.json({
+    ok: true,
+    undone: {
+      id: last.id,
+      summary: last.summary,
+      commit_sha: last.commit_sha,
+    },
+    rebuild,
+  });
+});
+
+// Ripristina lo stato precedente alla revisione X: reset --hard a parent_sha
+// di quella revisione, cancella dal DB tutte le revisioni 'turn' con id >= X.
+app.post('/api/session/:slug/restore/:revisionId', requireAuth, async (req, res) => {
+  const slug = req.params.slug;
+  if (!canAccessSlug(req.user!, slug)) {
+    res.status(403).json({ error: 'forbidden' });
+    return;
+  }
+  const site = getSiteBySlug(slug);
+  if (!site) {
+    res.status(404).json({ error: 'site not found' });
+    return;
+  }
+  const revId = parseInt(req.params.revisionId, 10);
+  if (!Number.isFinite(revId)) {
+    res.status(400).json({ error: 'revisionId non valido' });
+    return;
+  }
+  const rev = getRevisionById(revId, site.id);
+  if (!rev) {
+    res.status(404).json({ error: 'revisione non trovata' });
+    return;
+  }
+  if (rev.kind !== 'turn' || rev.superseded_at !== null) {
+    res.status(409).json({ error: 'Revisione non ripristinabile (già pubblicata o archiviata).' });
+    return;
+  }
+  if (!rev.parent_sha) {
+    res.status(409).json({ error: 'Revisione senza parent: impossibile ripristinare lo stato precedente.' });
+    return;
+  }
+  const cwd = resolveSiteCwd(site);
+  const reset = await resetPreviewTo(cwd, rev.parent_sha);
+  if (!reset.ok) {
+    res.status(500).json({ error: reset.message });
+    return;
+  }
+  const removed = deleteTurnsFromId(site.id, rev.id);
+  const rebuild = await rebuildSite(cwd, site.framework);
+  res.json({
+    ok: true,
+    restored_to_parent_of: rev.id,
+    removed_revisions: removed,
+    rebuild,
+  });
 });
 
 // Wizard onboarding (admin-only) — vedi project_tharvel memory.
@@ -622,6 +753,27 @@ Regole fondamentali:
     // Invio iniziale
     await sendFilesList();
 
+    // Garantisce branch `preview` al primo turn (lazy migration per i siti
+    // onboardati prima dell'introduzione del flusso preview). Errori silenziati
+    // qui: il primo auto-commit ritenterà.
+    let previewBranchReady = false;
+    const tryEnsurePreview = async () => {
+      if (previewBranchReady) return;
+      const res = await ensurePreviewBranch(sitePath);
+      if (res.ok) {
+        previewBranchReady = true;
+        console.log(`[PREVIEW] '${site.slug}': ${res.message}`);
+      } else {
+        console.warn(`[PREVIEW] '${site.slug}': ${res.message}`);
+      }
+    };
+    tryEnsurePreview().catch(() => {});
+
+    // Stato per l'auto-commit: cattura l'ultimo prompt utente del turno e
+    // se almeno un tool ha errored. Resettato a fine turn (agent_end).
+    let currentTurnPrompt = '';
+    let currentTurnHadError = false;
+
     const unsubscribe = session.subscribe((event) => {
       // Logging diagnostico: per message_update stampiamo anche il sotto-tipo (text_delta,
       // reasoning_delta, tool_call_progress, ecc.) e un'anteprima del payload, perché il
@@ -648,18 +800,46 @@ Regole fondamentali:
       }
       
       if (event.type === 'agent_end') {
+        // Auto-commit per turn dell'agente. Fire-and-forget: non bloccare il
+        // 'done' al client. Se l'utente clicca subito Pubblica prima che il
+        // commit sia finito, publishSite ritrova il working tree clean+ahead
+        // (caso già gestito) o dirty (e committerà lui). Race accettata.
+        const promptForCommit = currentTurnPrompt;
+        const hadError = currentTurnHadError;
+        currentTurnPrompt = '';
+        currentTurnHadError = false;
+
+        if (promptForCommit) {
+          autoCommitTurn({
+            site,
+            sitePath,
+            userPrompt: promptForCommit,
+            turnHadError: hadError,
+          })
+            .then((res) => {
+              if (res.committed) {
+                console.log(`[AUTO-COMMIT] '${site.slug}' ${res.commitSha?.slice(0, 8)} (${res.filesChanged?.length ?? 0} file)`);
+                ws.send(JSON.stringify({ type: 'history_updated' }));
+              } else {
+                console.log(`[AUTO-COMMIT] '${site.slug}' skipped: ${res.reason}`);
+              }
+            })
+            .catch((e) => console.error(`[AUTO-COMMIT] '${site.slug}' fatal:`, e));
+        }
+
         ws.send(JSON.stringify({ type: 'done' }));
       }
-      
+
       if (event.type === 'tool_execution_start') {
-         ws.send(JSON.stringify({ 
-           type: 'tool_start', 
-           tool: event.toolName 
+         ws.send(JSON.stringify({
+           type: 'tool_start',
+           tool: event.toolName
          }));
       }
 
       if (event.type === 'tool_execution_end') {
          console.log("[TOOL END]", event.toolName, "Error?", event.isError);
+         if (event.isError) currentTurnHadError = true;
       }
     });
 
@@ -751,6 +931,10 @@ Regole fondamentali:
           ws.send(JSON.stringify({ type: 'done' }));
           return;
         }
+
+        // Cattura il prompt utente per l'auto-commit a fine turn.
+        currentTurnPrompt = text;
+        currentTurnHadError = false;
 
         try {
           await session.prompt(text);

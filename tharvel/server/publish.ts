@@ -1,15 +1,22 @@
-// Pipeline publish per un sito Tharvel: stage tutto, commit con messaggio
-// generato dall'agente (passato come argomento del tool), push autenticato via
-// GitHub App installation token.
+// Pipeline publish per un sito Tharvel.
 //
-// Branch: usa il branch CORRENTE del checkout. Non facciamo strategy preview/main
-// per il MVP — il doc §6.4.1 prevede branch `preview` ma non è implementato
-// ancora; finché non lo è, push diretto sul branch attivo (per Industrial: master).
+// Modello: l'agente lavora sempre su branch `preview`. Al publish:
+//   1. ensurePreviewBranch (paranoia)
+//   2. eventuale commit del working tree dirty (se l'auto-commit non ha girato)
+//   3. checkout <upstream>  (main / master)
+//   4. git merge --squash preview
+//   5. git commit -m <commitMessage>
+//   6. git push origin <upstream>
+//   7. checkout preview, reset --hard <upstream>  → preview riallineato
+//   8. markTurnsAsSuperseded(site.id) → le revisioni storiche restano in DB
+//      come archivio "pubblicato il X", ma non più ripristinabili
 
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import type { Site } from './db/sites.js';
 import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
+import { ensurePreviewBranch, getBranchInfo } from './preview-branch.js';
+import { insertRevision, markTurnsAsSuperseded } from './db/revisions.js';
 
 interface RunResult {
   code: number;
@@ -39,10 +46,6 @@ export interface PublishResult {
   pushed: boolean;
 }
 
-// Esegue il publish per il sito. Sicurezza: il caller (custom tool nell'agente)
-// passa già lo `site` risolto dal contesto sessione, quindi non c'è rischio
-// cross-tenant. Il commit message è autoritativo (lo decide l'agente che ha
-// letto le modifiche), il timestamp viene aggiunto.
 export async function publishSite(
   site: Site,
   sitesRoot: string,
@@ -53,66 +56,127 @@ export async function publishSite(
   }
   const cwd = resolveSiteCwd(site, sitesRoot);
 
-  // 1) Stage tutto.
-  const addRes = await run('git', ['add', '-A'], { cwd });
-  if (addRes.code !== 0) {
-    return { ok: false, message: `git add fallito: ${addRes.stderr.trim()}`, pushed: false };
+  // 1) Assicura branch preview (idempotente).
+  const ensureRes = await ensurePreviewBranch(cwd);
+  if (!ensureRes.ok) {
+    return { ok: false, message: `Setup branch preview fallito: ${ensureRes.message}`, pushed: false };
+  }
+  const info = await getBranchInfo(cwd);
+  const upstream = info.upstreamBranch; // main / master
+
+  // 2) Eventuale commit working tree dirty su preview (se auto-commit non ha
+  //    girato o l'utente ha modificato file manualmente da CLI).
+  await run('git', ['add', '-A'], { cwd });
+  const dirty = (await run('git', ['status', '--porcelain'], { cwd })).stdout.trim().length > 0;
+  if (dirty) {
+    const fallback = commitMessage.trim() || 'Tharvel publish';
+    const commitRes = await run('git', ['commit', '-m', fallback], { cwd });
+    if (commitRes.code !== 0) {
+      return { ok: false, message: `git commit (preview) fallito: ${commitRes.stderr.trim()}`, pushed: false };
+    }
   }
 
-  // 2) Stato: c'è qualcosa di nuovo da committare? Ci sono commit locali non pushati?
-  // Trattiamo i due casi separatamente: un fallimento di push precedente lascia
-  // HEAD ahead di origin senza nuovi changes, e dobbiamo poter rilanciare il push.
-  const statusRes = await run('git', ['status', '--porcelain'], { cwd });
-  const dirty = statusRes.stdout.trim().length > 0;
-
-  let aheadCount = 0;
-  const aheadRes = await run('git', ['rev-list', '--count', '@{upstream}..HEAD'], { cwd });
-  if (aheadRes.code === 0) {
-    aheadCount = parseInt(aheadRes.stdout.trim(), 10) || 0;
-  }
-  // Se @{upstream} non è configurato, rev-list fallisce e aheadCount resta 0:
-  // in quel caso il primo push imposterà l'upstream (vedi sotto).
-
-  if (!dirty && aheadCount === 0) {
+  // 3) Niente da pubblicare? Confronto preview vs upstream remoto.
+  // Strategia: vediamo se preview e origin/<upstream> divergono.
+  await run('git', ['fetch', 'origin', upstream], { cwd });
+  const diffRes = await run(
+    'git',
+    ['rev-list', '--count', `origin/${upstream}..preview`],
+    { cwd },
+  );
+  const aheadCount = diffRes.code === 0 ? parseInt(diffRes.stdout.trim(), 10) || 0 : 0;
+  if (aheadCount === 0) {
     return {
       ok: true,
-      message: 'Nessuna modifica da pubblicare (working tree pulito, nessun commit pendente).',
+      message: 'Nessuna modifica da pubblicare (preview allineato al remoto).',
       pushed: false,
     };
   }
 
-  // 3) Commit (solo se ci sono modifiche staged).
-  let commitSha: string | undefined;
-  if (dirty) {
-    const cleanMsg = commitMessage.trim() || 'Tharvel publish';
-    const commitRes = await run('git', ['commit', '-m', cleanMsg], { cwd });
-    if (commitRes.code !== 0) {
-      return { ok: false, message: `git commit fallito: ${commitRes.stderr.trim()}`, pushed: false };
-    }
+  // 4) Checkout upstream + fast-forward a origin (così squash parte da base aggiornata).
+  const coUp = await run('git', ['checkout', upstream], { cwd });
+  if (coUp.code !== 0) {
+    return { ok: false, message: `checkout ${upstream} fallito: ${coUp.stderr.trim()}`, pushed: false };
   }
-  const shaRes = await run('git', ['rev-parse', '--short', 'HEAD'], { cwd });
-  commitSha = shaRes.stdout.trim();
+  // Fast-forward upstream locale a origin (resetta drift locale se presente,
+  // ma manteniamo soft-error perché il push poi può fallire per non-ff).
+  await run('git', ['reset', '--hard', `origin/${upstream}`], { cwd });
 
-  // 4) Push: token fresco, URL temporaneo come argomento (non lo salviamo in
-  //    .git/config per evitare token persistente dopo che è scaduto).
-  const token = await getInstallationToken();
-  const pushUrl = authenticatedRepoUrl(site.repo_url, token);
-  // HEAD push: spinge il branch corrente sulla sua upstream (es. master → master).
-  const pushRes = await run('git', ['push', pushUrl, 'HEAD'], { cwd });
-  if (pushRes.code !== 0) {
-    // Importante: NON logghiamo pushUrl perché contiene il token.
-    const sanitized = pushRes.stderr.replace(/x-access-token:[^@]+@/g, 'x-access-token:***@');
+  // 5) Squash merge da preview.
+  const squashRes = await run('git', ['merge', '--squash', 'preview'], { cwd });
+  if (squashRes.code !== 0) {
+    // Torna su preview per non lasciare l'utente in stato strano.
+    await run('git', ['checkout', 'preview'], { cwd });
     return {
       ok: false,
-      message: `git push fallito (commit locale ${commitSha} OK): ${sanitized.trim()}`,
+      message: `git merge --squash fallito (probabile conflitto con ${upstream}): ${squashRes.stderr.trim()}`,
+      pushed: false,
+    };
+  }
+
+  // 6) Commit dello squash. `merge --squash` lascia tutto staged senza creare
+  //    commit, quindi serve git commit esplicito.
+  const cleanMsg = commitMessage.trim() || 'Tharvel publish';
+  const commitRes = await run('git', ['commit', '-m', cleanMsg], { cwd });
+  if (commitRes.code !== 0) {
+    // Nessun cambio? (caso teorico: preview era già allineato pur con ahead != 0)
+    if (/nothing to commit/i.test(commitRes.stdout + commitRes.stderr)) {
+      await run('git', ['checkout', 'preview'], { cwd });
+      return {
+        ok: true,
+        message: 'Nessuna modifica effettiva da pubblicare.',
+        pushed: false,
+      };
+    }
+    return { ok: false, message: `git commit (squash) fallito: ${commitRes.stderr.trim()}`, pushed: false };
+  }
+  const shaRes = await run('git', ['rev-parse', '--short', 'HEAD'], { cwd });
+  const commitSha = shaRes.stdout.trim();
+  const fullShaRes = await run('git', ['rev-parse', 'HEAD'], { cwd });
+  const fullSha = fullShaRes.stdout.trim();
+
+  // 7) Push autenticato.
+  const token = await getInstallationToken();
+  const pushUrl = authenticatedRepoUrl(site.repo_url, token);
+  const pushRes = await run('git', ['push', pushUrl, `HEAD:${upstream}`], { cwd });
+  if (pushRes.code !== 0) {
+    const sanitized = pushRes.stderr.replace(/x-access-token:[^@]+@/g, 'x-access-token:***@');
+    // Lascia il commit locale su upstream così il prossimo Pubblica può ritentare.
+    await run('git', ['checkout', 'preview'], { cwd });
+    return {
+      ok: false,
+      message: `git push fallito (commit ${commitSha} su ${upstream} locale OK): ${sanitized.trim()}`,
       commitSha,
       pushed: false,
     };
   }
 
+  // 8) Torna su preview e riallinea al nuovo upstream (storia preview azzerata,
+  //    ripartiamo puliti per i prossimi turn).
+  await run('git', ['checkout', 'preview'], { cwd });
+  await run('git', ['reset', '--hard', upstream], { cwd });
+
+  // 9) Marca le revisioni 'turn' del sito come archiviate + INSERT riga 'publish'
+  //    come marker nella history.
+  markTurnsAsSuperseded(site.id);
+  try {
+    insertRevision({
+      site_id: site.id,
+      commit_sha: fullSha,
+      parent_sha: null,
+      user_prompt: '[pubblicazione]',
+      summary: cleanMsg,
+      files_changed: [],
+      kind: 'publish',
+    });
+  } catch (e) {
+    // Non-blocking: il push è già fatto, una riga di history mancante non rompe nulla.
+    console.warn(`[publish] insertRevision(publish) fallito:`, e);
+  }
+
   return {
     ok: true,
-    message: `Pubblicato. Commit ${commitSha} pushato. Coolify avvierà il deploy del sito a breve.`,
+    message: `Pubblicato. Commit ${commitSha} su ${upstream}. Coolify avvierà il deploy del sito a breve.`,
     commitSha,
     pushed: true,
   };

@@ -29,6 +29,10 @@ export function useTharvelSession(slug: Ref<string | null>) {
   const selectedElement = ref<SelectedElement | null>(null);
   const selectedModel = ref('openai-codex/gpt-5.5');
   const iframeNonce = ref(0);
+  // Bumpa quando il server segnala che una nuova revisione è stata committata
+  // (event `history_updated`, emesso dopo che l'auto-commit a fine turn riesce).
+  // Il pannello Storico osserva questo contatore per fare refetch.
+  const historyNonce = ref(0);
 
   const auth = reactive<Record<string, 'connected' | 'disconnected' | 'pending'>>({
     'anthropic': 'disconnected',
@@ -78,6 +82,9 @@ export function useTharvelSession(slug: Ref<string | null>) {
         break;
       case 'files_updated':
         send({ type: 'get_files' });
+        break;
+      case 'history_updated':
+        historyNonce.value = Date.now();
         break;
       case 'error':
         isProcessing.value = false;
@@ -193,11 +200,13 @@ export function useTharvelSession(slug: Ref<string | null>) {
     selectedElement,
     selectedModel,
     iframeNonce,
+    historyNonce,
     auth,
     sendPrompt,
     setModel,
     uploadFile,
     clearChat,
+    reloadIframe,
     onAfterMessage,
   };
 }

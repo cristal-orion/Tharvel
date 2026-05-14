@@ -2,6 +2,7 @@
 import { ref } from 'vue';
 import type { ProjectFile } from '../composables/useTharvelSession';
 import type { SessionUser } from '../composables/useAuth';
+import HistoryPanel from './HistoryPanel.vue';
 
 interface SiteSummary {
   id: number;
@@ -18,6 +19,7 @@ const props = defineProps<{
   adminSites: SiteSummary[];
   activeSlug: string | null;
   sitesLoading: boolean;
+  historyNonce: number;
 }>();
 
 const emit = defineEmits<{
@@ -27,10 +29,12 @@ const emit = defineEmits<{
   (e: 'select-site', slug: string): void;
   (e: 'add-site'): void;
   (e: 'logout'): void;
+  (e: 'reload-preview'): void;
 }>();
 
 const sitesOpen = ref(true);
 const assetsOpen = ref(true);
+const historyOpen = ref(true);
 
 const toggle = (path: string, current: string[]) => {
   const idx = current.indexOf(path);
@@ -86,6 +90,23 @@ const toggle = (path: string, current: string[]) => {
             </svg>
             <span>Aggiungi sito…</span>
           </button>
+        </div>
+      </section>
+
+      <!-- Sezione Storico modifiche — visibile sia admin che client. -->
+      <section v-if="activeSlug" class="section">
+        <button class="section-header" @click="historyOpen = !historyOpen">
+          <svg class="caret" :class="{ open: historyOpen }" width="10" height="10" viewBox="0 0 10 10">
+            <path d="M3 2 L7 5 L3 8 Z" fill="currentColor" />
+          </svg>
+          <span>Storico</span>
+        </button>
+        <div v-if="historyOpen" class="section-body history-body">
+          <HistoryPanel
+            :slug="activeSlug"
+            :nonce="historyNonce"
+            @reload-preview="emit('reload-preview')"
+          />
         </div>
       </section>
 
@@ -224,6 +245,7 @@ const toggle = (path: string, current: string[]) => {
 .section-body {
   padding: 4px 8px 8px 8px;
 }
+.history-body { padding: 4px 6px 8px 6px; }
 
 .project-row {
   display: flex;

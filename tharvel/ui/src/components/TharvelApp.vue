@@ -86,12 +86,14 @@ const noSlug = computed(() => !activeSlug.value);
       :admin-sites="adminSites"
       :active-slug="activeSlug"
       :sites-loading="sitesLoading"
+      :history-nonce="session.historyNonce.value"
       @update:selected="session.selectedFiles.value = $event"
       @open-settings="settingsOpen = true"
       @clear-chat="session.clearChat()"
       @select-site="setAdminActiveSlug($event)"
       @add-site="wizardOpen = true"
       @logout="logout"
+      @reload-preview="session.reloadIframe()"
     />
 
     <template v-if="noSlug">
