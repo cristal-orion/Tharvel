@@ -1008,7 +1008,10 @@ Regole fondamentali:
 // Mount a root perché il proxy strippa BASE_PATH; gli asset emessi da Vite hanno
 // comunque link prefissati (`/tharveladmin/assets/...`), che il browser ripresenta
 // al proxy con il prefix → strip → arrivano qui come `/assets/...` ✓.
-const uiDistPath = path.resolve(__dirname, '..', 'ui-dist');
+// Path override via env perché in prod giriamo da dist/ (__dirname diverso da source).
+const uiDistPath = process.env.THARVEL_UI_DIST
+  ? path.resolve(process.env.THARVEL_UI_DIST)
+  : path.resolve(__dirname, '..', 'ui-dist');
 if (existsSync(uiDistPath)) {
   app.use(express.static(uiDistPath));
   // SPA fallback: GET non-static, non-preview → index.html (Vue gestisce lo state).

@@ -39,9 +39,11 @@ COPY tharvel/shared/ shared/
 RUN npm run build --workspace=ui
 
 ############################################################
-# Server deps — incl. toolchain per better-sqlite3 (native)
+# Server build — toolchain native (better-sqlite3) + tsc → dist/
+# Installa devDeps, compila TypeScript, poi rimuove devDeps così
+# le node_modules che finiscono nello stage finale sono prod-only.
 ############################################################
-FROM base AS server-deps
+FROM base AS server-build
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
@@ -50,9 +52,13 @@ COPY tharvel/package.json tharvel/package-lock.json ./
 COPY tharvel/server/package.json server/
 COPY tharvel/shared/package.json shared/
 COPY tharvel/ui/package.json ui/
-# --include=dev perché `tsx` (devDep) viene usato a runtime.
-# Quando passeremo a tsc → dist/index.js togliamo --include=dev e rimuoviamo tsx.
 RUN npm ci --workspace=server --include-workspace-root --include=dev
+# Source server + shared → compile a server/dist/
+COPY tharvel/server/ server/
+COPY tharvel/shared/ shared/
+RUN npm run build --workspace=server
+# Pruning post-build: devDeps non servono più a runtime
+RUN npm prune --omit=dev --workspaces --include-workspace-root
 
 ############################################################
 # Target: ui runtime — serve dist via vite preview (LEGACY, solo docker-compose dev)
@@ -75,11 +81,11 @@ CMD ["npx", "vite", "preview", "--host", "0.0.0.0", "--port", "5173"]
 ############################################################
 FROM base AS server
 WORKDIR /app
-COPY --from=server-deps /build/tharvel/node_modules ./node_modules
-COPY --from=server-deps /build/tharvel/server/node_modules ./server/node_modules
+COPY --from=server-build /build/tharvel/node_modules ./node_modules
+COPY --from=server-build /build/tharvel/server/node_modules ./server/node_modules
+COPY --from=server-build /build/tharvel/server/dist ./server/dist
+COPY --from=server-build /build/tharvel/server/package.json ./server/package.json
 COPY tharvel/package.json ./
-COPY tharvel/server/ ./server/
-COPY tharvel/shared/ ./shared/
 COPY --from=ui-builder /build/tharvel/ui/dist ./ui-dist
 RUN mkdir -p /data /var/tharvel/sites \
     && chown -R tharvel:tharvel /app /data /var/tharvel
@@ -100,9 +106,10 @@ ENV NODE_ENV=production \
     PORT=3000 \
     THARVEL_DB_PATH=/data/tharvel.db \
     THARVEL_SITES_ROOT=/var/tharvel/sites \
+    THARVEL_UI_DIST=/app/ui-dist \
     GIT_AUTHOR_NAME="Tharvel Bot" \
     GIT_AUTHOR_EMAIL="tharvel@cristal-orion.it" \
     GIT_COMMITTER_NAME="Tharvel Bot" \
     GIT_COMMITTER_EMAIL="tharvel@cristal-orion.it"
 EXPOSE 3000
-CMD ["npx", "tsx", "server/index.ts"]
+CMD ["node", "server/dist/index.js"]

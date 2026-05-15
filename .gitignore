@@ -39,6 +39,9 @@ tharvel/ui/dist/
 tharvel/ui/.astro/
 tharvel/**/*.tsbuildinfo
 
+# Server build artifacts (ricostruiti dal Docker build via `npm run build`)
+tharvel/server/dist/
+
 # Logs in generale
 *.log
 
