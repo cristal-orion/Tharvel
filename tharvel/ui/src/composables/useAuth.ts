@@ -28,8 +28,25 @@ const activeSlug = computed<string | null>(() => {
   return adminActiveSlug.value;
 });
 
+// Bypass auth in dev: se VITE_DEV_BYPASS_AUTH=1 (vedi .env.local) saltiamo il
+// roundtrip a /api/me e popoliamo un admin finto. Utile per iterare sulla UI
+// senza dover avviare backend + DB. Non viene MAI eseguito in build di prod
+// (import.meta.env.DEV guard).
+const DEV_BYPASS =
+  import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === '1';
+
 async function init(): Promise<void> {
   loading.value = true;
+  if (DEV_BYPASS) {
+    user.value = {
+      id: 0,
+      email: 'dev@tharvel.local',
+      role: 'admin',
+      slug: null,
+    };
+    loading.value = false;
+    return;
+  }
   try {
     const res = await fetch(apiUrl('/api/me'), { credentials: 'include' });
     if (res.ok) {

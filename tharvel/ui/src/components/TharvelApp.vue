@@ -5,8 +5,10 @@ import PreviewPane from './PreviewPane.vue';
 import ChatPanel from './ChatPanel.vue';
 import SettingsModal from './SettingsModal.vue';
 import AddSiteWizard from './AddSiteWizard.vue';
+import PublishDialog from './PublishDialog.vue';
 import { useTharvelSession } from '../composables/useTharvelSession';
 import { useAuth } from '../composables/useAuth';
+import { useRevisions } from '../composables/useRevisions';
 import { apiUrl } from '../site';
 
 const { user, activeSlug, setAdminActiveSlug, logout } = useAuth();
@@ -15,9 +17,21 @@ const { user, activeSlug, setAdminActiveSlug, logout } = useAuth();
 // admin lo decide la sidebar — appena montata, l'admin riceve la lista siti e
 // se lo slug attivo non è ancora settato selezioniamo il primo della lista.
 const session = useTharvelSession(activeSlug);
+const revisions = useRevisions(activeSlug, session.historyNonce);
 const settingsOpen = ref(false);
 const wizardOpen = ref(false);
+const publishDialogOpen = ref(false);
 const isDragging = ref(false);
+
+// Layout state: due flag persistiti separatamente. La sidebar rail-mode e la
+// chat nascosta sono indipendenti: l'utente può combinare per massimizzare
+// la preview.
+const SIDEBAR_KEY = 'tharvel-sidebar-collapsed';
+const CHAT_KEY = 'tharvel-chat-hidden';
+const sidebarCollapsed = ref<boolean>(localStorage.getItem(SIDEBAR_KEY) === '1');
+const chatHidden = ref<boolean>(localStorage.getItem(CHAT_KEY) === '1');
+watch(sidebarCollapsed, (v) => localStorage.setItem(SIDEBAR_KEY, v ? '1' : '0'));
+watch(chatHidden, (v) => localStorage.setItem(CHAT_KEY, v ? '1' : '0'));
 
 interface SiteSummary {
   id: number;
@@ -28,10 +42,22 @@ interface SiteSummary {
 const adminSites = ref<SiteSummary[]>([]);
 const sitesLoading = ref(false);
 
+const DEV_BYPASS =
+  import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === '1';
+
 async function loadSitesForAdmin() {
   if (user.value?.role !== 'admin') return;
   sitesLoading.value = true;
   try {
+    if (DEV_BYPASS) {
+      // Siti finti per iterare sulla UI senza backend.
+      adminSites.value = [
+        { id: 1, slug: 'demo-site', domain: 'demo.tharvel.local', framework: 'astro' },
+        { id: 2, slug: 'industrial-service', domain: 'industrial.local', framework: 'html' },
+      ];
+      if (!activeSlug.value) setAdminActiveSlug('demo-site');
+      return;
+    }
     const res = await fetch(apiUrl('/api/sites'), { credentials: 'include' });
     if (res.ok) {
       const body = await res.json();
@@ -87,6 +113,7 @@ const noSlug = computed(() => !activeSlug.value);
       :active-slug="activeSlug"
       :sites-loading="sitesLoading"
       :history-nonce="session.historyNonce.value"
+      :collapsed="sidebarCollapsed"
       @update:selected="session.selectedFiles.value = $event"
       @open-settings="settingsOpen = true"
       @clear-chat="session.clearChat()"
@@ -94,6 +121,7 @@ const noSlug = computed(() => !activeSlug.value);
       @add-site="wizardOpen = true"
       @logout="logout"
       @reload-preview="session.reloadIframe()"
+      @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
     />
 
     <template v-if="noSlug">
@@ -111,11 +139,18 @@ const noSlug = computed(() => !activeSlug.value);
         :slug="activeSlug as string"
         :iframe-nonce="session.iframeNonce.value"
         :selected-element="session.selectedElement.value"
+        :chat-hidden="chatHidden"
+        :is-connected="session.isConnected.value"
+        :pending-changes="revisions.pendingChanges.value"
         @clear-element="session.selectedElement.value = null"
-        @publish="session.sendPrompt('Pubblica le modifiche al sito.')"
+        @publish="publishDialogOpen = true"
+        @toggle-chat="chatHidden = !chatHidden"
+        @reconnect="session.reconnect()"
+        @reload-preview="session.reloadIframe()"
       />
 
       <ChatPanel
+        v-if="!chatHidden"
         :messages="session.messages.value"
         :is-processing="session.isProcessing.value"
         :is-connected="session.isConnected.value"
@@ -125,6 +160,8 @@ const noSlug = computed(() => !activeSlug.value);
         @update:selected-model="session.setModel($event)"
         @open-settings="settingsOpen = true"
         @upload-file="session.uploadFile($event)"
+        @clear-chat="session.clearChat()"
+        @reconnect="session.reconnect()"
       />
     </template>
 
@@ -140,6 +177,14 @@ const noSlug = computed(() => !activeSlug.value);
       v-if="wizardOpen"
       @close="wizardOpen = false"
       @done="loadSitesForAdmin"
+    />
+
+    <PublishDialog
+      v-if="publishDialogOpen"
+      :pending-count="revisions.pendingChanges.value"
+      :files="revisions.pendingFiles.value"
+      @close="publishDialogOpen = false"
+      @confirm="() => { publishDialogOpen = false; session.sendPrompt('Pubblica le modifiche al sito.'); }"
     />
 
     <transition name="drop">
@@ -196,7 +241,7 @@ const noSlug = computed(() => !activeSlug.value);
 .dropzone {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
+  background: var(--backdrop);
   backdrop-filter: blur(8px);
   display: grid;
   place-items: center;

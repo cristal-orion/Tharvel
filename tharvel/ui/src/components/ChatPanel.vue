@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue';
+import { ref, nextTick, watch, computed } from 'vue';
 import type { ChatMessage } from '../composables/useTharvelSession';
 import ProviderPicker from './ProviderPicker.vue';
+import ChatWelcome from './ChatWelcome.vue';
+import EmptyState from './EmptyState.vue';
+import { useResizable } from '../composables/useResizable';
 
 const props = defineProps<{
   messages: ChatMessage[];
@@ -16,7 +19,24 @@ const emit = defineEmits<{
   (e: 'update:selectedModel', val: string): void;
   (e: 'open-settings'): void;
   (e: 'upload-file', file: File): void;
+  (e: 'clear-chat'): void;
+  (e: 'reconnect'): void;
 }>();
+
+// "Vuoto" = nessun messaggio user/ai. I system message (saluto iniziale,
+// tool_start, ecc.) non contano per questa logica: vogliamo mostrare il
+// welcome con suggestion chips finché l'utente non ha mai scritto nulla.
+const hasContent = computed(() =>
+  props.messages.some((m) => m.role === 'user' || m.role === 'ai'),
+);
+
+const panelResize = useResizable({
+  storageKey: 'tharvel-chat-width',
+  defaultPx: 400,
+  minPx: 320,
+  maxPx: 640,
+  edge: 'left',
+});
 
 const input = ref('');
 const messagesEl = ref<HTMLElement | null>(null);
@@ -78,28 +98,77 @@ const formatMessage = (text: string) => {
 </script>
 
 <template>
-  <aside class="chat">
+  <aside
+    class="chat"
+    :class="{ resizing: panelResize.dragging.value }"
+    :style="{ width: panelResize.width.value + 'px' }"
+  >
+    <div
+      class="resize-handle"
+      :class="{ active: panelResize.dragging.value }"
+      @pointerdown="panelResize.onPointerDown"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Ridimensiona chat"
+    ></div>
     <header class="chat-bar">
       <div class="chat-title">Chat</div>
+      <span class="status-pill" :class="{ on: isConnected }">
+        <span class="dot"></span>
+        {{ isConnected ? 'Connessa' : 'Non connessa' }}
+      </span>
       <div class="chat-actions">
-        <span class="status" :class="{ on: isConnected }">{{ isConnected ? 'online' : 'offline' }}</span>
+        <button
+          v-if="hasContent"
+          class="hdr-btn"
+          @click="emit('clear-chat')"
+          title="Svuota chat"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M3 6 H21 M8 6 V4 H16 V6 M6 6 L7 20 H17 L18 6" />
+          </svg>
+        </button>
       </div>
     </header>
 
     <div class="messages" ref="messagesEl">
       <div class="messages-inner">
-        <div
-          v-for="(msg, i) in messages"
-          :key="i"
-          class="msg"
-          :class="msg.role"
-        >
-          <div v-if="msg.role !== 'system'" class="msg-bubble" v-html="formatMessage(msg.content)"></div>
-          <div v-else class="msg-system">{{ msg.content }}</div>
-        </div>
-        <div v-if="isProcessing" class="typing">
-          <span></span><span></span><span></span>
-        </div>
+        <template v-if="!hasContent && !isConnected">
+          <EmptyState
+            title="Chat non connessa"
+            body="Non riusciamo a parlare con il server di Tharvel. Verifica che il backend sia avviato e riprova."
+            tone="warning"
+          >
+            <template #icon>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M5 12.55 a11 11 0 0 1 14 0 M8.5 16.05 a6 6 0 0 1 7 0 M12 20 h.01 M2 8.82 a15 15 0 0 1 4-2.45 M18 6.37 a15 15 0 0 1 4 2.45 M3 3 L21 21" />
+              </svg>
+            </template>
+            <template #actions>
+              <button class="es-action primary" @click="emit('reconnect')">Riprova</button>
+              <button class="es-action" @click="emit('open-settings')">Impostazioni</button>
+            </template>
+          </EmptyState>
+        </template>
+
+        <template v-else-if="!hasContent">
+          <ChatWelcome :is-connected="isConnected" @pick="emit('send', $event)" />
+        </template>
+
+        <template v-else>
+          <div
+            v-for="(msg, i) in messages"
+            :key="i"
+            class="msg"
+            :class="msg.role"
+          >
+            <div v-if="msg.role !== 'system'" class="msg-bubble" v-html="formatMessage(msg.content)"></div>
+            <div v-else class="msg-system">{{ msg.content }}</div>
+          </div>
+          <div v-if="isProcessing" class="typing">
+            <span></span><span></span><span></span>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -168,12 +237,30 @@ const formatMessage = (text: string) => {
 
 <style scoped>
 .chat {
-  width: 400px;
   flex-shrink: 0;
   background: var(--bg);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
+  position: relative;
+  transition: width var(--t-base);
+}
+.chat.resizing { transition: none; }
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 10;
+  background: transparent;
+  transition: background var(--t-fast);
+}
+.resize-handle:hover,
+.resize-handle.active {
+  background: var(--brand-soft);
 }
 
 .chat-bar {
@@ -182,17 +269,67 @@ const formatMessage = (text: string) => {
   align-items: center;
   padding: 0 16px;
   border-bottom: 1px solid var(--border);
-  gap: 12px;
+  gap: 10px;
 }
 .chat-title { font-size: 13px; font-weight: 600; }
-.chat-actions { margin-left: auto; }
-.status {
+.chat-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11px;
   color: var(--text-mute);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  background: var(--bg-hover);
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
 }
-.status.on { color: var(--success); }
+.status-pill .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--error);
+  transition: background var(--t-fast);
+}
+.status-pill.on { color: var(--success); background: var(--success-soft); border-color: transparent; }
+.status-pill.on .dot { background: var(--success); }
+
+.hdr-btn {
+  background: transparent;
+  border: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  display: grid;
+  place-items: center;
+  color: var(--text-mute);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.hdr-btn:hover { background: var(--bg-hover); color: var(--text); }
+
+.es-action {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-soft);
+  transition: all var(--t-fast);
+}
+.es-action:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+  border-color: var(--text-soft);
+}
+.es-action.primary {
+  background: var(--accent);
+  color: var(--on-accent);
+  border-color: transparent;
+}
+.es-action.primary:hover {
+  background: var(--accent-hover);
+}
 
 .messages {
   flex: 1;
@@ -216,8 +353,8 @@ const formatMessage = (text: string) => {
   word-wrap: break-word;
 }
 .msg.user .msg-bubble {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--on-accent);
   border-bottom-right-radius: 4px;
 }
 .msg.ai .msg-bubble {
@@ -236,14 +373,14 @@ const formatMessage = (text: string) => {
 }
 
 .msg-bubble :deep(code) {
-  background: rgba(0,0,0,0.06);
+  background: var(--code-bg);
   padding: 1px 5px;
   border-radius: 4px;
   font-family: var(--font-mono);
   font-size: 12px;
 }
 .msg.user .msg-bubble :deep(code) {
-  background: rgba(255,255,255,0.15);
+  background: var(--code-bg-on-accent);
 }
 
 .typing {
@@ -345,17 +482,17 @@ const formatMessage = (text: string) => {
 .spacer { flex: 1; }
 
 .send {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--on-accent);
   border: 0;
   width: 32px;
   height: 32px;
   border-radius: 50%;
   display: grid;
   place-items: center;
-  transition: background 0.15s;
+  transition: background var(--t-fast), transform var(--t-fast);
 }
-.send:hover:not(:disabled) { background: #000; }
+.send:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
 
 .hidden-file-input { display: none; }
 .attach-btn {

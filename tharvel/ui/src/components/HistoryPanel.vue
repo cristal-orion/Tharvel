@@ -154,7 +154,9 @@ const lastUndoable = (): Revision | null => {
     <div v-if="error" class="error-row">✕ {{ error }}</div>
 
     <div v-if="loading && revisions.length === 0" class="empty">Caricamento…</div>
-    <div v-else-if="revisions.length === 0" class="empty">Nessuna modifica ancora.</div>
+    <div v-else-if="revisions.length === 0" class="empty">
+      Le modifiche al sito appariranno qui dopo ogni richiesta riuscita.
+    </div>
 
     <ul v-else class="rev-list">
       <li
@@ -261,8 +263,8 @@ const lastUndoable = (): Revision | null => {
 }
 .rev-item:hover { background: var(--bg-hover); }
 .rev-item.publish {
-  border-left-color: var(--success, #2ea043);
-  background: rgba(46, 160, 67, 0.05);
+  border-left-color: var(--success);
+  background: var(--success-soft);
 }
 .rev-item.superseded { opacity: 0.55; }
 
@@ -279,7 +281,7 @@ const lastUndoable = (): Revision | null => {
   color: var(--text-mute);
   flex-shrink: 0;
 }
-.rev-item.publish .rev-kind { color: var(--success, #2ea043); }
+.rev-item.publish .rev-kind { color: var(--success); }
 .rev-summary {
   flex: 1;
   white-space: nowrap;
@@ -324,7 +326,7 @@ const lastUndoable = (): Revision | null => {
   padding-left: 17px;
   margin-top: 2px;
   font-size: 10px;
-  color: var(--success, #2ea043);
+  color: var(--success);
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.4px;

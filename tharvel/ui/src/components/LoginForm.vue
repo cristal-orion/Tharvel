@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { useAuth } from '../composables/useAuth';
+import logoExtended from '../assets/logo-extended.png';
 
 const { login, error } = useAuth();
 const email = ref('');
@@ -25,12 +26,7 @@ async function onSubmit() {
 <template>
   <div class="login-shell">
     <form class="login-card" @submit.prevent="onSubmit">
-      <div class="brand">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-          <path d="M5 4 L5 20 M19 4 L19 20" />
-        </svg>
-        <span class="brand-name">Tharvel</span>
-      </div>
+      <img :src="logoExtended" alt="Tharvel" class="brand-logo" />
       <h1>Accedi</h1>
       <p class="sub">Inserisci le credenziali per modificare il tuo sito.</p>
 
@@ -71,30 +67,27 @@ async function onSubmit() {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: var(--bg-soft, #f5f5f5);
+  background: var(--bg-soft);
   padding: 24px;
 }
 .login-card {
   width: 100%;
   max-width: 360px;
-  background: var(--bg, #fff);
-  border: 1px solid var(--border, #e5e5e5);
-  border-radius: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 28px 24px 24px;
-  box-shadow: var(--shadow-md, 0 6px 24px rgba(0, 0, 0, 0.06));
+  box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text, #111);
-}
-.brand-name {
-  font-weight: 600;
-  letter-spacing: 0.2px;
+.brand-logo {
+  display: block;
+  height: 32px;
+  width: auto;
+  align-self: flex-start;
+  filter: var(--logo-filter, none);
 }
 h1 {
   margin: 8px 0 0;
@@ -103,7 +96,7 @@ h1 {
 }
 .sub {
   margin: 0 0 8px;
-  color: var(--text-soft, #555);
+  color: var(--text-soft);
   font-size: 13.5px;
 }
 label {
@@ -111,39 +104,42 @@ label {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-soft, #444);
+  color: var(--text-soft);
 }
 label input {
   font-size: 14px;
   padding: 10px 12px;
-  border: 1px solid var(--border, #d4d4d4);
-  border-radius: 8px;
-  background: var(--bg, #fff);
-  color: var(--text, #111);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
 label input:focus {
-  border-color: var(--text, #111);
+  border-color: var(--text);
 }
 .err {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--error-bg);
+  color: var(--error-text);
   padding: 8px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 13px;
 }
 button[type='submit'] {
   margin-top: 4px;
-  background: var(--text, #111);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
   border: 0;
   padding: 11px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: background var(--t-fast), opacity var(--t-fast);
+}
+button[type='submit']:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 button[type='submit']:disabled {
   opacity: 0.5;

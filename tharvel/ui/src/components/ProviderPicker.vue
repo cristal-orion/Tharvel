@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import { PROVIDERS, findProvider, parseSelected } from '../composables/providers';
+import ProviderIcon from './ProviderIcon.vue';
 
 const props = defineProps<{
   selected: string;
@@ -71,7 +72,9 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
               :class="{ expanded: expanded === p.id }"
               @click="expanded = expanded === p.id ? null : p.id"
             >
-              <span class="prov-icon" :data-prov="p.id"></span>
+              <span class="prov-icon">
+                <ProviderIcon :provider="p.id" :size="18" />
+              </span>
               <span class="prov-name">{{ p.label }}</span>
               <span
                 class="prov-badge"
@@ -186,18 +189,13 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
 .prov-row:hover { background: var(--bg-hover); }
 
 .prov-icon {
-  width: 18px;
-  height: 18px;
-  border-radius: 4px;
-  background: var(--bg-active);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
-.prov-icon[data-prov="anthropic"] { background: linear-gradient(135deg, #d97757 0%, #c66a4f 100%); }
-.prov-icon[data-prov="openai-codex"] { background: linear-gradient(135deg, #10a37f 0%, #0d8a6c 100%); }
-.prov-icon[data-prov="github-copilot"] { background: #24292e; }
-.prov-icon[data-prov="opencode"] { background: linear-gradient(135deg, #6366f1, #4f46e5); }
-.prov-icon[data-prov="opencode-go"] { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
-.prov-icon[data-prov="openai"] { background: #10a37f; }
 
 .prov-name { flex: 1; font-weight: 500; }
 .prov-badge {
@@ -211,11 +209,11 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
   color: var(--text-mute);
 }
 .prov-badge.connected {
-  background: rgba(22,163,74,0.12);
+  background: var(--success-soft);
   color: var(--success);
 }
 .prov-badge.pending {
-  background: rgba(217,119,6,0.12);
+  background: var(--warning-soft);
   color: var(--warning);
 }
 .caret { transition: transform 0.15s; color: var(--text-mute); }

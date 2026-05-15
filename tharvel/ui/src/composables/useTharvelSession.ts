@@ -176,6 +176,14 @@ export function useTharvelSession(slug: Ref<string | null>) {
     send({ type: 'prompt', content: '/clear' });
   };
 
+  // Forza un nuovo tentativo immediato di WS (utile per il bottone "Riprova"
+  // nel pannello chat offline). Differente dal retry automatico ogni 3s che
+  // continua comunque in background.
+  const reconnect = () => {
+    disconnect();
+    if (slug.value) connect();
+  };
+
   const onElementMessage = (e: MessageEvent) => {
     if (e.data?.type === 'THARVEL_ELEMENT_SELECTED') {
       selectedElement.value = e.data.info;
@@ -206,6 +214,7 @@ export function useTharvelSession(slug: Ref<string | null>) {
     setModel,
     uploadFile,
     clearChat,
+    reconnect,
     reloadIframe,
     onAfterMessage,
   };

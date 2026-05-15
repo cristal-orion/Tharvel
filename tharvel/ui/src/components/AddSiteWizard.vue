@@ -354,17 +354,17 @@ function finish() {
 .modal-shell {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--backdrop);
   backdrop-filter: blur(4px);
   display: grid;
   place-items: center;
   z-index: 2000;
 }
 .modal {
-  background: var(--bg, #fff);
-  border: 1px solid var(--border, #e5e5e5);
-  border-radius: 14px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
   width: 100%;
   max-width: 560px;
   max-height: 90vh;
@@ -432,8 +432,8 @@ label small {
   font-size: 11.5px;
   color: var(--text-mute, #999);
 }
-label small.ok { color: #16a34a; }
-label small.weak { color: #b91c1c; }
+label small.ok { color: var(--success); }
+label small.weak { color: var(--error); }
 label small code { font-family: var(--font-mono, monospace); color: var(--text-soft, #555); }
 
 .preview-card {
@@ -486,8 +486,8 @@ label small code { font-family: var(--font-mono, monospace); color: var(--text-s
 }
 .badge {
   font-size: 10.5px;
-  background: #dcfce7;
-  color: #166534;
+  background: var(--success-soft);
+  color: var(--success);
   padding: 1px 6px;
   border-radius: 999px;
   text-transform: uppercase;
@@ -532,8 +532,8 @@ label small code { font-family: var(--font-mono, monospace); color: var(--text-s
 }
 
 .err {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--error-bg);
+  color: var(--error-text);
   padding: 9px 12px;
   border-radius: 7px;
   font-size: 13px;
@@ -558,8 +558,12 @@ button {
   border: 0;
 }
 button.primary {
-  background: var(--text, #111);
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-accent);
+  transition: background var(--t-fast);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 button.primary:disabled {
   opacity: 0.4;
@@ -567,8 +571,12 @@ button.primary:disabled {
 }
 button.ghost {
   background: transparent;
-  border: 1px solid var(--border, #d4d4d4);
-  color: var(--text, #111);
+  border: 1px solid var(--border);
+  color: var(--text);
+  transition: background var(--t-fast);
+}
+button.ghost:hover {
+  background: var(--bg-hover);
 }
 
 .running {
@@ -592,20 +600,21 @@ button.ghost {
   display: flex;
   gap: 12px;
   align-items: flex-start;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  border-radius: 8px;
+  background: var(--success-soft);
+  border: 1px solid var(--success);
+  border-radius: var(--radius);
   padding: 12px 14px;
   font-size: 13.5px;
+  color: var(--text);
 }
 .ok-icon {
   font-size: 18px;
-  color: #16a34a;
+  color: var(--success);
   flex-shrink: 0;
 }
-.ok-banner p { margin: 4px 0 0; color: #065f46; font-size: 13px; }
-.ok-banner .warn { color: #92400e; }
-.ok-banner code { background: rgba(0,0,0,0.05); padding: 1px 4px; border-radius: 3px; font-family: var(--font-mono, monospace); }
+.ok-banner p { margin: 4px 0 0; color: var(--text-soft); font-size: 13px; }
+.ok-banner .warn { color: var(--warning); }
+.ok-banner code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; font-family: var(--font-mono); }
 
 .copy-block textarea {
   font-family: var(--font-mono, monospace);

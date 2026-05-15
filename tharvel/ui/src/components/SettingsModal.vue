@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import { PROVIDERS } from '../composables/providers';
+import ProviderIcon from './ProviderIcon.vue';
 
 defineProps<{
   auth: Record<string, 'connected' | 'disconnected' | 'pending'>;
@@ -41,7 +42,9 @@ const handleSubmit = (providerId: string) => {
 
         <div class="prov-card" v-for="p in PROVIDERS" :key="p.id">
           <div class="prov-head">
-            <span class="prov-icon" :data-prov="p.id"></span>
+            <span class="prov-icon">
+              <ProviderIcon :provider="p.id" :size="26" />
+            </span>
             <div class="prov-text">
               <div class="prov-name">{{ p.label }}</div>
               <div class="prov-desc">{{ p.description }}</div>
@@ -161,18 +164,16 @@ const handleSubmit = (providerId: string) => {
   gap: 12px;
 }
 .prov-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  background: var(--bg-active);
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
-.prov-icon[data-prov="anthropic"] { background: linear-gradient(135deg, #d97757 0%, #c66a4f 100%); }
-.prov-icon[data-prov="openai-codex"] { background: linear-gradient(135deg, #10a37f 0%, #0d8a6c 100%); }
-.prov-icon[data-prov="github-copilot"] { background: #24292e; }
-.prov-icon[data-prov="opencode"] { background: linear-gradient(135deg, #6366f1, #4f46e5); }
-.prov-icon[data-prov="opencode-go"] { background: linear-gradient(135deg, #8b5cf6, #6366f1); }
-.prov-icon[data-prov="openai"] { background: #10a37f; }
 
 .prov-text { flex: 1; }
 .prov-name { font-size: 13.5px; font-weight: 600; }
@@ -190,11 +191,11 @@ const handleSubmit = (providerId: string) => {
   white-space: nowrap;
 }
 .status-pill.connected {
-  background: rgba(22,163,74,0.12);
+  background: var(--success-soft);
   color: var(--success);
 }
 .status-pill.pending {
-  background: rgba(217,119,6,0.12);
+  background: var(--warning-soft);
   color: var(--warning);
 }
 
@@ -224,10 +225,10 @@ const handleSubmit = (providerId: string) => {
   transition: background 0.15s;
 }
 .btn-primary {
-  background: var(--text);
-  color: var(--bg);
+  background: var(--accent);
+  color: var(--on-accent);
 }
-.btn-primary:hover:not(:disabled) { background: #000; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn-ghost {
   background: var(--bg-hover);
   color: var(--text);

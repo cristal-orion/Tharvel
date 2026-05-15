@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "simple-icons": "^16.19.0",
     "vue": "^3.5.32"
   },
   "devDependencies": {
