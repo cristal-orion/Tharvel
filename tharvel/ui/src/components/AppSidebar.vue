@@ -247,25 +247,27 @@ const toggle = (path: string, current: string[]) => {
         <div v-if="assetsOpen" class="section-body" @click="closeMenu">
           <div v-if="files.length === 0" class="empty">Trascina un'immagine sulla preview o usa <strong>+</strong> qui sopra.</div>
           <div v-for="f in files" :key="f.path" class="file-row" :class="{ 'is-image': f.isImage }">
+            <a
+              v-if="f.isImage"
+              class="file-thumb"
+              :href="assetUrl(f)"
+              target="_blank"
+              rel="noopener noreferrer"
+              :title="`Apri ${f.name}`"
+            >
+              <img :src="assetUrl(f)" :alt="f.name" loading="lazy" />
+            </a>
+            <span v-else class="file-thumb file-thumb-icon">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 3 H6 a2 2 0 0 0 -2 2 V19 a2 2 0 0 0 2 2 H18 a2 2 0 0 0 2 -2 V9 Z M14 3 V9 H20" />
+              </svg>
+            </span>
             <label class="file-label">
               <input
                 type="checkbox"
                 :checked="selected.includes(f.path)"
                 @change="toggle(f.path, selected)"
               />
-              <span class="file-thumb-wrap" v-if="f.isImage">
-                <svg class="file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="4" width="18" height="16" rx="1.5" />
-                  <circle cx="8.5" cy="10" r="1.4" fill="currentColor" />
-                  <path d="M21 16 L15 10 L5 20" />
-                </svg>
-                <span class="thumb-pop" role="tooltip">
-                  <img :src="assetUrl(f)" :alt="f.name" loading="lazy" />
-                </span>
-              </span>
-              <svg v-else class="file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 3 H6 a2 2 0 0 0 -2 2 V19 a2 2 0 0 0 2 2 H18 a2 2 0 0 0 2 -2 V9 Z M14 3 V9 H20" />
-              </svg>
               <span class="file-name" :title="f.name">{{ f.name }}</span>
             </label>
             <div v-if="f.isImage" class="file-menu-wrap">
@@ -674,8 +676,8 @@ const toggle = (path: string, current: string[]) => {
 .file-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 6px 3px 8px;
+  gap: 8px;
+  padding: 4px 6px 4px 8px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-soft);
@@ -708,39 +710,31 @@ const toggle = (path: string, current: string[]) => {
   flex: 1;
 }
 
-.file-thumb-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
+.file-thumb {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
   flex-shrink: 0;
-}
-.thumb-pop {
-  position: absolute;
-  left: calc(100% + 10px);
-  top: 50%;
-  transform: translateY(-50%) translateX(-4px);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 4px;
-  box-shadow: var(--shadow-lg);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--t-fast), transform var(--t-fast);
-  z-index: 250;
-}
-.thumb-pop img {
-  display: block;
-  max-width: 180px;
-  max-height: 180px;
   border-radius: 4px;
-  object-fit: contain;
+  overflow: hidden;
   background: var(--bg-hover);
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  transition: transform var(--t-fast), border-color var(--t-fast);
 }
-.file-row.is-image:hover .thumb-pop {
-  opacity: 1;
-  transform: translateY(-50%) translateX(0);
+.file-thumb:hover { transform: scale(1.05); border-color: var(--text-soft); }
+.file-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
+.file-thumb-icon {
+  color: var(--text-mute);
+  cursor: default;
+}
+.file-thumb-icon:hover { transform: none; border-color: var(--border); }
 
 .file-menu-wrap {
   position: relative;

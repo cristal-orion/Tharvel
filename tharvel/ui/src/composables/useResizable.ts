@@ -29,8 +29,14 @@ export function useResizable(opts: Options) {
     dragging.value = true;
     const startX = e.clientX;
     const startW = width.value;
-    document.body.style.cursor = 'col-resize';
-    // Disabilita selezione testo durante il drag.
+
+    // Overlay full-screen che cattura pointer durante il drag. Senza, l'iframe
+    // della preview ingoia gli eventi quando il cursore ci passa sopra e onUp
+    // non scatta più → drag "incollato" anche dopo aver rilasciato il mouse.
+    const overlay = document.createElement('div');
+    overlay.style.cssText =
+      'position:fixed;inset:0;z-index:99999;cursor:col-resize;background:transparent;user-select:none';
+    document.body.appendChild(overlay);
     document.body.style.userSelect = 'none';
 
     const onMove = (ev: PointerEvent) => {
@@ -40,15 +46,19 @@ export function useResizable(opts: Options) {
       const next = opts.edge === 'right' ? startW + delta : startW - delta;
       width.value = Math.max(opts.minPx, Math.min(opts.maxPx, next));
     };
-    const onUp = () => {
+    const cleanup = () => {
       dragging.value = false;
-      document.body.style.cursor = '';
       document.body.style.userSelect = '';
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
+      overlay.removeEventListener('pointermove', onMove);
+      overlay.removeEventListener('pointerup', cleanup);
+      overlay.removeEventListener('pointercancel', cleanup);
+      overlay.remove();
     };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
+    overlay.addEventListener('pointermove', onMove);
+    overlay.addEventListener('pointerup', cleanup);
+    // pointercancel scatta quando il browser annulla il drag (es. perdita focus):
+    // senza, lo stesso pattern dell'iframe può lasciare lo stato sporco.
+    overlay.addEventListener('pointercancel', cleanup);
   }
 
   return {
