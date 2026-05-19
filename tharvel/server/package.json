@@ -28,7 +28,6 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "@capyup/pi-codex-image": "^0.2.2",
     "@mariozechner/pi-coding-agent": "^0.73.0",
     "@sinclair/typebox": "^0.34.49",
     "argon2": "^0.44.0",

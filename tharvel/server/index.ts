@@ -555,10 +555,11 @@ PUBBLICAZIONE:
 - Se publish_site fallisce per "modifiche remote più recenti" (non-fast-forward), esegui \`git pull --rebase\` con il bash e richiama publish_site automaticamente, senza chiedere conferma.
 
 IMMAGINI AI:
-- Se l'utente chiede esplicitamente di "genera/crea un'immagine" (es. "fammi un'immagine hero di una fabbrica", "crea una foto stilizzata di un panino"), usa il tool "image_generation". Salva il file in public/ (per Vite/Astro/SPA) o nella cartella appropriata.
-- Dopo la generazione, modifica il sorgente del componente per usare la nuova immagine (es. \`<img src="/nome-file.webp">\`) e poi rifai \`npm run build\`.
-- Per ANALIZZARE un'immagine esistente del sito (es. "guarda il logo e fammelo più scuro nello sfondo"), usa "view_image" sul path della risorsa.
-- NON usare image_generation se l'utente sta caricando un suo file via drag-and-drop — quello passa già dal tool process_uploaded_file.`;
+- Se l'utente chiede esplicitamente di "genera/crea un'immagine" (es. "fammi un'immagine hero di una fabbrica", "crea una foto stilizzata di un panino"), usa il tool "generate_image". Passa SEMPRE il parametro \`save_path\` come path relativo dentro \`public/\` (es. \`save_path: "public/hero-fabbrica.png"\`) altrimenti il file finisce fuori dal sito.
+- Dopo la generazione, modifica il sorgente del componente per usare la nuova immagine (es. \`<img src="/hero-fabbrica.png">\`, percorso assoluto a partire da \`/\`, NON con \`public/\` davanti perché Vite/Astro servono \`public/\` come root) e poi rifai \`npm run build\`.
+- Per EDITARE un'immagine esistente (es. "guarda il logo e fammelo più scuro"), usa \`generate_image\` con \`input_image_paths: ["public/logo.png"]\` e una nuova \`save_path\`.
+- Per LEGGERE un'immagine senza generarne una nuova (es. analisi, alt text), usa il tool \`read\` sul path: leggerà l'immagine direttamente.
+- NON usare generate_image se l'utente sta caricando un suo file via drag-and-drop — quello passa già dal tool process_uploaded_file.`;
 
     const agentsContent = site.framework === 'vite'
       ? vitePrompt
@@ -608,10 +609,11 @@ PUBBLICAZIONE:
 - SE publish_site fallisce perché "il repository remoto contiene modifiche più recenti" (non-fast-forward, rejected), NON chiedere conferma all'utente: esegui automaticamente \`git pull --rebase origin <branch-corrente>\` con il tool bash (per ricavare il branch usa \`git rev-parse --abbrev-ref HEAD\`), poi richiama publish_site con lo stesso commit message. Riporta in chat solo l'esito finale.
 
 IMMAGINI AI:
-- Se l'utente chiede esplicitamente di "genera/crea un'immagine" (es. "fammi un'immagine hero di una fabbrica industriale moderna", "crea una foto stilizzata di un panino vegano"), usa il tool "image_generation". Salva il file generato in public/ così Astro lo include in dist/ al prossimo build.
-- Dopo la generazione, modifica il sorgente Astro (in src/) per puntare alla nuova immagine, poi rifai \`npm run build\`.
-- Per ANALIZZARE un'immagine esistente del sito (es. "guarda il logo e suggeriscimi una palette", "controlla la foto hero e scrivi un alt text appropriato"), usa "view_image" sul path della risorsa in public/.
-- NON usare image_generation se l'utente sta caricando un suo file via drag-and-drop — quello passa già dal tool process_uploaded_file.`
+- Se l'utente chiede esplicitamente di "genera/crea un'immagine" (es. "fammi un'immagine hero di una fabbrica industriale moderna", "crea una foto stilizzata di un panino vegano"), usa il tool "generate_image". Passa SEMPRE il parametro \`save_path\` come path relativo dentro \`public/\` (es. \`save_path: "public/hero-fabbrica.png"\`) altrimenti il file finisce fuori dal sito.
+- Dopo la generazione, modifica il sorgente Astro (in src/) per puntare alla nuova immagine (es. \`<img src="/hero-fabbrica.png">\`, percorso assoluto a partire da \`/\`, NON con \`public/\` davanti perché Astro serve \`public/\` come root del sito) e poi rifai \`npm run build\`.
+- Per EDITARE un'immagine esistente (es. "rendi il logo più scuro nello sfondo"), usa \`generate_image\` con \`input_image_paths: ["public/logo.png"]\` e una nuova \`save_path\`.
+- Per LEGGERE un'immagine senza generarne una nuova (es. scrivere un alt text per accessibilità, suggerire una palette), usa il tool \`read\` sul path: leggerà l'immagine direttamente.
+- NON usare generate_image se l'utente sta caricando un suo file via drag-and-drop — quello passa già dal tool process_uploaded_file.`
       : `Sei Tharvel, l'agente AI esperto per la gestione del sito "${site.slug}".
 Regole fondamentali:
 1. I file del sito web si trovano nella tua cartella corrente. Il file HTML principale è "index.html" e le immagini sono in "assets/".
@@ -621,7 +623,15 @@ Regole fondamentali:
 5. Parla in italiano in modo conciso e professionale. Al termine della modifica avvisa l'utente.
 6. Quando l'utente chiede di "pubblicare" / "mandare online", usa il tool "publish_site" con un commit message conciso che riassume le modifiche. NON usare il bash per git add/commit/push.
 7. Se publish_site fallisce per "modifiche remote più recenti" (non-fast-forward), esegui \`git pull --rebase\` col tool bash e richiama publish_site automaticamente, senza chiedere conferma.
-8. IMMAGINI AI — se l'utente chiede esplicitamente di GENERARE/CREARE un'immagine, usa il tool "image_generation" e salva il file in assets/. Poi modifica index.html per usarla. Per ANALIZZARE un'immagine esistente, usa "view_image" sul path. NON usare image_generation per gli upload utente (gestiti da process_uploaded_file).`;
+8. IMMAGINI AI — se l'utente chiede esplicitamente di GENERARE/CREARE un'immagine, usa il tool "generate_image" passando SEMPRE \`save_path: "assets/<nome>.png"\` (path relativo, dentro assets/ del sito). Poi modifica index.html per usarla con \`<img src="assets/<nome>.png">\`. Per EDITARE un'immagine esistente passa \`input_image_paths: ["assets/<nome>.png"]\` a generate_image con una nuova save_path. Per LEGGERE un'immagine (alt text, palette, analisi), usa il tool \`read\` sul path. NON usare generate_image per gli upload utente (gestiti da process_uploaded_file).`;
+
+    // Garantisce .pi/settings.json + symlink npm condiviso PRIMA del loader.reload(),
+    // altrimenti su un sito appena onboardato la prima sessione partirebbe senza i
+    // pi-package extension caricati (il loader non troverebbe .pi/settings.json).
+    // Migra anche eventuali settings.json che puntano a pacchetti deprecati.
+    const piSettingsResult = await ensurePiSettings(sitePath);
+    if (piSettingsResult.ok) console.log(`[PI] '${site.slug}': ${piSettingsResult.message}`);
+    else console.warn(`[PI] '${site.slug}': ${piSettingsResult.message}`);
 
     const loader = new DefaultResourceLoader({
       cwd: sitePath,
@@ -636,14 +646,14 @@ Regole fondamentali:
         ]
       })
     });
-    
+
     // Per assicurarci che i file extension di .pi vengano caricati e la cache aggiornata:
     await loader.reload();
 
     // Log diagnostico: quali extension ha caricato il loader per questo sito,
     // e quali errori ha registrato durante il discovery. Utile per capire perché
-    // pi-codex-image non si registra (es. settings.json non letto, symlink non
-    // risolto, extension file non parseable).
+    // @hewliyang/pi-codex-image non si registra (es. settings.json non letto,
+    // symlink non risolto, extension file non parseable).
     const extRes = loader.getExtensions();
     console.log(
       `[PI ext] '${site.slug}': loaded ${extRes.extensions.length} extension(s)` +
@@ -806,15 +816,10 @@ Regole fondamentali:
     };
     tryEnsurePreview().catch(() => {});
 
-    // Garantisce .pi/settings.json + symlink npm condiviso per i tool
-    // image_generation / view_image del package pi-codex-image. Lazy come
-    // sopra: errori silenziati, l'agente funzionerà senza il tool extra.
-    ensurePiSettings(sitePath)
-      .then((res) => {
-        if (res.ok) console.log(`[PI] '${site.slug}': ${res.message}`);
-        else console.warn(`[PI] '${site.slug}': ${res.message}`);
-      })
-      .catch((e) => console.warn(`[PI] '${site.slug}': fatal`, e));
+    // (ensurePiSettings è ora chiamato PRIMA di loader.reload, vedi sopra:
+    // serve che .pi/settings.json esista quando il loader scansiona le
+    // extension, altrimenti la prima sessione di un sito nuovo parte senza
+    // generate_image.)
 
     // Stato per l'auto-commit: cattura l'ultimo prompt utente del turno e
     // se almeno un tool ha errored. Resettato a fine turn (agent_end).

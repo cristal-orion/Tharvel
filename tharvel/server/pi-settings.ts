@@ -18,12 +18,17 @@ interface PiSettings {
   [key: string]: unknown;
 }
 
-const DEFAULT_PACKAGES = ['npm:@capyup/pi-codex-image'];
+const DEFAULT_PACKAGES = ['npm:@hewliyang/pi-codex-image'];
+// Pacchetti deprecati: se trovati nel settings.json di un sito esistente,
+// vengono sostituiti dai DEFAULT_PACKAGES per allinearsi al binario attualmente
+// installato in /opt/pi-extensions/.pi/npm/. Vedi memoria
+// tharvel-image-generation-root-cause.md per la storia del rename.
+const DEPRECATED_PACKAGES = new Set(['npm:@capyup/pi-codex-image']);
 
 // Idempotente. Da chiamare al boot della sessione di un sito + nell'onboarding.
 // Ritorna { ok, message } per logging diagnostico, non lancia eccezioni:
 // se il shared dir non esiste (es. dev locale senza Dockerfile), logga warning
-// e continua — l'agente funzionerà senza il tool image_generation.
+// e continua — l'agente funzionerà senza il tool generate_image.
 export async function ensurePiSettings(sitePath: string): Promise<{ ok: boolean; message: string }> {
   const sitePiDir = path.join(sitePath, '.pi');
   const sitePiSettings = path.join(sitePiDir, 'settings.json');
@@ -31,10 +36,22 @@ export async function ensurePiSettings(sitePath: string): Promise<{ ok: boolean;
 
   await fs.mkdir(sitePiDir, { recursive: true });
 
-  // settings.json: scrivi se manca, mai sovrascrivere (così domani si può
-  // tweakare per-sito senza che lo helper rilavi sopra).
+  // settings.json: se manca, scrivi i default. Se esiste ma punta a un pacchetto
+  // deprecato, fai la migrazione (e basta — niente altre policy override sul
+  // contenuto user-tweakato). Tieni `packages` come unico campo migrato.
   try {
-    await fs.access(sitePiSettings);
+    const raw = await fs.readFile(sitePiSettings, 'utf-8');
+    const parsed = JSON.parse(raw) as PiSettings;
+    const current = Array.isArray(parsed.packages) ? parsed.packages : [];
+    const hasDeprecated = current.some((p) => DEPRECATED_PACKAGES.has(p));
+    if (hasDeprecated) {
+      const migrated = current.filter((p) => !DEPRECATED_PACKAGES.has(p));
+      for (const def of DEFAULT_PACKAGES) {
+        if (!migrated.includes(def)) migrated.push(def);
+      }
+      const next = { ...parsed, packages: migrated };
+      await fs.writeFile(sitePiSettings, JSON.stringify(next, null, 2) + '\n', 'utf-8');
+    }
   } catch {
     const settings: PiSettings = { packages: DEFAULT_PACKAGES };
     await fs.writeFile(sitePiSettings, JSON.stringify(settings, null, 2) + '\n', 'utf-8');
@@ -46,7 +63,7 @@ export async function ensurePiSettings(sitePath: string): Promise<{ ok: boolean;
   } catch {
     return {
       ok: false,
-      message: `shared pi dir ${SHARED_PI_DIR} non trovato — image_generation non disponibile`,
+      message: `shared pi dir ${SHARED_PI_DIR} non trovato — generate_image non disponibile`,
     };
   }
   const sharedNpmDir = path.join(SHARED_PI_DIR, 'npm');
