@@ -460,6 +460,40 @@ app.use('/site/:slug', requireAuth, async (req, res, next) => {
   return handler(req, res, next);
 });
 
+// Preview/Download di un asset del sito direttamente dalla uploads dir.
+// Bypassa il flusso `/site/:slug` (che per Astro serve da dist/): un file appena
+// caricato in public/ è subito disponibile qui anche senza un build.
+// Auth: stessa policy del path `/site/:slug` (admin o slug coincidente).
+app.get('/api/sites/:slug/uploads/:filename', requireAuth, async (req, res) => {
+  const slug = req.params.slug;
+  if (req.user!.role !== 'admin' && req.user!.slug !== slug) {
+    res.status(403).send('forbidden');
+    return;
+  }
+  const site = getSiteBySlug(slug);
+  if (!site) {
+    res.status(404).send('site not found');
+    return;
+  }
+  const uploadsDir = resolveSiteUploadsDir(site);
+  const safeName = path.basename(req.params.filename);
+  const resolved = path.resolve(path.join(uploadsDir, safeName));
+  if (!resolved.startsWith(path.resolve(uploadsDir) + path.sep)) {
+    res.status(400).send('bad path');
+    return;
+  }
+  try {
+    await fs.access(resolved);
+  } catch {
+    res.status(404).send('not found');
+    return;
+  }
+  if (req.query.download === '1') {
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}"`);
+  }
+  res.sendFile(resolved);
+});
+
 // Rende un nome file sicuro per il filesystem e per il parser XML dei tool dell'LLM
 // (no spazi, no punti multipli, no caratteri speciali). L'estensione viene preservata.
 function sanitizeFileName(name: string): string {
@@ -783,6 +817,7 @@ Regole fondamentali:
       console.warn(`[PI tools] '${site.slug}': unable to list active tools:`, e);
     }
 
+    const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif', '.bmp']);
     const sendFilesList = async () => {
       try {
         // FIX: mostriamo i file da site/assets (html) o site/public (astro), non da root/assets
@@ -790,7 +825,11 @@ Regole fondamentali:
         const files = await fs.readdir(defaultUploadsDir);
         ws.send(JSON.stringify({
           type: 'files_list',
-          files: files.map(f => ({ name: f, path: `${defaultUploadsRel}/${f}` }))
+          files: files.map(f => ({
+            name: f,
+            path: `${defaultUploadsRel}/${f}`,
+            isImage: IMAGE_EXTS.has(path.extname(f).toLowerCase()),
+          }))
         }));
       } catch (e) {
         ws.send(JSON.stringify({ type: 'files_list', files: [] }));
@@ -962,7 +1001,7 @@ Regole fondamentali:
 
       if (data.type === 'prompt') {
         const text = data.content.trim();
-        
+
         // Gestione comandi slash manuale
         if (text.startsWith('/model ')) {
           const newModelId = text.split(' ')[1];
@@ -976,7 +1015,7 @@ Regole fondamentali:
           ws.send(JSON.stringify({ type: 'done' }));
           return;
         }
-        
+
         if (text.startsWith('/clear')) {
           session.agent.state.messages = [];
           ws.send(JSON.stringify({ type: 'system', content: `🧹 Memoria della chat cancellata.` }));
@@ -984,12 +1023,29 @@ Regole fondamentali:
           return;
         }
 
+        // Immagini allegate inline al prompt: vengono passate come ImageContent[]
+        // al modello (multimodal input), senza essere salvate sul filesystem.
+        // È il canale "screenshot di riferimento", distinto dall'upload_file.
+        const images = Array.isArray(data.images)
+          ? data.images
+              .filter((img: any) => img && typeof img.fileBase64 === 'string' && typeof img.mimeType === 'string')
+              .map((img: any) => ({
+                type: 'image' as const,
+                data: img.fileBase64,
+                mimeType: img.mimeType,
+              }))
+          : undefined;
+
         // Cattura il prompt utente per l'auto-commit a fine turn.
         currentTurnPrompt = text;
         currentTurnHadError = false;
 
         try {
-          await session.prompt(text);
+          if (images && images.length > 0) {
+            await session.prompt(text, images);
+          } else {
+            await session.prompt(text);
+          }
         } catch (error: any) {
           ws.send(JSON.stringify({ type: 'error', message: error.message || 'Errore sconosciuto' }));
         }

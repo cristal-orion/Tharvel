@@ -21,7 +21,6 @@ const revisions = useRevisions(activeSlug, session.historyNonce);
 const settingsOpen = ref(false);
 const wizardOpen = ref(false);
 const publishDialogOpen = ref(false);
-const isDragging = ref(false);
 
 // Layout state: due flag persistiti separatamente. La sidebar rail-mode e la
 // chat nascosta sono indipendenti: l'utente può combinare per massimizzare
@@ -74,12 +73,6 @@ async function loadSitesForAdmin() {
 onMounted(loadSitesForAdmin);
 watch(() => user.value?.role, loadSitesForAdmin);
 
-const onDrop = (e: DragEvent) => {
-  isDragging.value = false;
-  const file = e.dataTransfer?.files[0];
-  if (file) session.uploadFile(file);
-};
-
 const onLogin = (providerId: string) => {
   session.messages.value.push({
     role: 'system',
@@ -99,11 +92,7 @@ const noSlug = computed(() => !activeSlug.value);
 </script>
 
 <template>
-  <div
-    class="app"
-    @dragenter.prevent="isDragging = true"
-    @dragover.prevent
-  >
+  <div class="app">
     <AppSidebar
       :files="session.projectFiles.value"
       :selected="session.selectedFiles.value"
@@ -119,6 +108,7 @@ const noSlug = computed(() => !activeSlug.value);
       @clear-chat="session.clearChat()"
       @select-site="setAdminActiveSlug($event)"
       @add-site="wizardOpen = true"
+      @upload-asset="session.uploadFile($event)"
       @logout="logout"
       @reload-preview="session.reloadIframe()"
       @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
@@ -147,6 +137,7 @@ const noSlug = computed(() => !activeSlug.value);
         @toggle-chat="chatHidden = !chatHidden"
         @reconnect="session.reconnect()"
         @reload-preview="session.reloadIframe()"
+        @upload-asset="session.uploadFile($event)"
       />
 
       <ChatPanel
@@ -156,10 +147,12 @@ const noSlug = computed(() => !activeSlug.value);
         :is-connected="session.isConnected.value"
         :selected-model="session.selectedModel.value"
         :auth="session.auth"
+        :pending-images="session.pendingImages.value"
         @send="session.sendPrompt($event)"
         @update:selected-model="session.setModel($event)"
         @open-settings="settingsOpen = true"
-        @upload-file="session.uploadFile($event)"
+        @attach-image="session.addPendingImage($event)"
+        @remove-pending-image="session.removePendingImage($event)"
         @clear-chat="session.clearChat()"
         @reconnect="session.reconnect()"
       />
@@ -187,24 +180,6 @@ const noSlug = computed(() => !activeSlug.value);
       @confirm="() => { publishDialogOpen = false; session.sendPrompt('Pubblica le modifiche al sito.'); }"
     />
 
-    <transition name="drop">
-      <div
-        v-if="isDragging"
-        class="dropzone"
-        @dragleave.prevent="isDragging = false"
-        @drop.prevent="onDrop"
-      >
-        <div class="drop-card">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <div class="drop-title">Rilascia il file</div>
-          <div class="drop-sub">Le immagini vengono compresse e salvate in <code>assets/</code></div>
-        </div>
-      </div>
-    </transition>
   </div>
 </template>
 
@@ -238,48 +213,4 @@ const noSlug = computed(() => !activeSlug.value);
   font-size: 14px;
 }
 
-.dropzone {
-  position: fixed;
-  inset: 0;
-  background: var(--backdrop);
-  backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  z-index: 2000;
-  pointer-events: all;
-}
-.drop-card {
-  background: var(--bg);
-  border: 1.5px dashed var(--text);
-  border-radius: var(--radius-lg);
-  padding: 32px 40px;
-  text-align: center;
-  color: var(--text);
-  pointer-events: none;
-  box-shadow: var(--shadow-lg);
-}
-.drop-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin-top: 12px;
-}
-.drop-sub {
-  font-size: 12.5px;
-  color: var(--text-soft);
-  margin-top: 6px;
-}
-.drop-sub code {
-  background: var(--bg-hover);
-  padding: 1px 5px;
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-}
-
-.drop-enter-active, .drop-leave-active {
-  transition: opacity 0.15s ease;
-}
-.drop-enter-from, .drop-leave-to {
-  opacity: 0;
-}
 </style>

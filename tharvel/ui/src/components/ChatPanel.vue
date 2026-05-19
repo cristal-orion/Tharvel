@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue';
-import type { ChatMessage } from '../composables/useTharvelSession';
+import type { ChatMessage, PendingImage } from '../composables/useTharvelSession';
 import ProviderPicker from './ProviderPicker.vue';
 import ChatWelcome from './ChatWelcome.vue';
 import EmptyState from './EmptyState.vue';
@@ -12,13 +12,15 @@ const props = defineProps<{
   isConnected: boolean;
   selectedModel: string;
   auth: Record<string, 'connected' | 'disconnected' | 'pending'>;
+  pendingImages: PendingImage[];
 }>();
 
 const emit = defineEmits<{
   (e: 'send', text: string): void;
   (e: 'update:selectedModel', val: string): void;
   (e: 'open-settings'): void;
-  (e: 'upload-file', file: File): void;
+  (e: 'attach-image', file: File): void;
+  (e: 'remove-pending-image', id: string): void;
   (e: 'clear-chat'): void;
   (e: 'reconnect'): void;
 }>();
@@ -42,6 +44,8 @@ const input = ref('');
 const messagesEl = ref<HTMLElement | null>(null);
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
 const fileInputEl = ref<HTMLInputElement | null>(null);
+const dragging = ref(false);
+let dragDepth = 0;
 
 function pickFile() {
   fileInputEl.value?.click();
@@ -49,10 +53,46 @@ function pickFile() {
 
 function onPickFile(e: Event) {
   const target = e.target as HTMLInputElement;
-  const file = target.files?.[0];
-  if (file) emit('upload-file', file);
+  const files = target.files;
+  if (files) {
+    for (const f of Array.from(files)) emit('attach-image', f);
+  }
   // reset così lo stesso file può essere ri-selezionato in futuro
   target.value = '';
+}
+
+// Drag&drop scoped sulla chat. Usiamo un contatore per gestire i drag su figli
+// (l'evento dragenter scatta anche entrando in un figlio, dragleave entrando dal
+// figlio al parent ⇒ senza contatore l'overlay sparirebbe).
+function onDragEnter(e: DragEvent) {
+  if (!e.dataTransfer?.types?.includes('Files')) return;
+  dragDepth += 1;
+  dragging.value = true;
+}
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dragging.value = false;
+}
+function onDrop(e: DragEvent) {
+  dragDepth = 0;
+  dragging.value = false;
+  const files = e.dataTransfer?.files;
+  if (!files) return;
+  for (const f of Array.from(files)) emit('attach-image', f);
+}
+
+function onPaste(e: ClipboardEvent) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const it of Array.from(items)) {
+    if (it.kind === 'file' && it.type.startsWith('image/')) {
+      const f = it.getAsFile();
+      if (f) {
+        emit('attach-image', f);
+        e.preventDefault();
+      }
+    }
+  }
 }
 
 const reasoning = ref<'low' | 'medium' | 'high'>('medium');
@@ -60,7 +100,9 @@ const reasoningOpen = ref(false);
 
 const send = () => {
   const t = input.value.trim();
-  if (!t || props.isProcessing) return;
+  // Mandiamo anche con testo vuoto se ci sono immagini allegate.
+  if (props.isProcessing) return;
+  if (!t && props.pendingImages.length === 0) return;
   emit('send', t);
   input.value = '';
   resize();
@@ -100,8 +142,12 @@ const formatMessage = (text: string) => {
 <template>
   <aside
     class="chat"
-    :class="{ resizing: panelResize.dragging.value }"
+    :class="{ resizing: panelResize.dragging.value, dragging }"
     :style="{ width: panelResize.width.value + 'px' }"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="onDrop"
   >
     <div
       class="resize-handle"
@@ -111,6 +157,17 @@ const formatMessage = (text: string) => {
       aria-orientation="vertical"
       aria-label="Ridimensiona chat"
     ></div>
+    <transition name="dz">
+      <div v-if="dragging" class="chat-dropzone">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <div class="dz-title">Allega alla chat</div>
+        <div class="dz-sub">Lo screenshot resta solo qui (non viene salvato negli asset)</div>
+      </div>
+    </transition>
     <header class="chat-bar">
       <div class="chat-title">Chat</div>
       <span class="status-pill" :class="{ on: isConnected }">
@@ -162,7 +219,22 @@ const formatMessage = (text: string) => {
             class="msg"
             :class="msg.role"
           >
-            <div v-if="msg.role !== 'system'" class="msg-bubble" v-html="formatMessage(msg.content)"></div>
+            <template v-if="msg.role !== 'system'">
+              <div v-if="msg.attachments && msg.attachments.length" class="msg-attachments">
+                <a
+                  v-for="a in msg.attachments"
+                  :key="a.dataUrl"
+                  class="msg-attachment"
+                  :href="a.dataUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  :title="a.name"
+                >
+                  <img :src="a.dataUrl" :alt="a.name" />
+                </a>
+              </div>
+              <div v-if="msg.content" class="msg-bubble" v-html="formatMessage(msg.content)"></div>
+            </template>
             <div v-else class="msg-system">{{ msg.content }}</div>
           </div>
           <div v-if="isProcessing" class="typing">
@@ -173,11 +245,25 @@ const formatMessage = (text: string) => {
     </div>
 
     <div class="composer">
+      <transition-group v-if="pendingImages.length" name="chip" tag="div" class="pending-images">
+        <div v-for="p in pendingImages" :key="p.id" class="pending-chip" :title="p.name">
+          <img :src="p.dataUrl" :alt="p.name" />
+          <span class="pending-name">{{ p.name }}</span>
+          <button
+            class="pending-x"
+            @click="emit('remove-pending-image', p.id)"
+            title="Rimuovi dall'allegato"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 2 L8 8 M8 2 L2 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
+          </button>
+        </div>
+      </transition-group>
       <textarea
         ref="textareaEl"
         v-model="input"
         @keydown="onKey"
         @input="resize"
+        @paste="onPaste"
         placeholder="Modifica il sito, fai una domanda…"
         rows="1"
         :disabled="!isConnected"
@@ -187,16 +273,18 @@ const formatMessage = (text: string) => {
           ref="fileInputEl"
           type="file"
           class="hidden-file-input"
+          accept="image/*"
+          multiple
           @change="onPickFile"
         />
         <button
           class="attach-btn"
           @click="pickFile"
           :disabled="!isConnected"
-          title="Allega file (immagini compresse e salvate in public/ o assets/)"
+          title="Allega un'immagine alla chat (resta solo qui, non viene salvata negli asset)"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-            <path d="M12 5 V19 M5 12 H19" />
+            <path d="M21 15 V19 a2 2 0 0 1 -2 2 H5 a2 2 0 0 1 -2 -2 V5 a2 2 0 0 1 2 -2 h9 M17 8 L21 4 M21 4 V8 M21 4 H17" />
           </svg>
         </button>
 
@@ -225,7 +313,7 @@ const formatMessage = (text: string) => {
 
         <div class="spacer"></div>
 
-        <button class="send" @click="send" :disabled="!input.trim() || isProcessing || !isConnected">
+        <button class="send" @click="send" :disabled="(!input.trim() && pendingImages.length === 0) || isProcessing || !isConnected">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
             <path d="M5 12 L12 5 L19 12 M12 5 L12 19" />
           </svg>
@@ -522,4 +610,101 @@ const formatMessage = (text: string) => {
   opacity: 0;
   transform: translateY(4px);
 }
+
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+  justify-content: flex-end;
+}
+.msg-attachment {
+  display: block;
+  width: 140px;
+  max-width: 60%;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg-soft);
+  transition: transform var(--t-fast), box-shadow var(--t-fast);
+}
+.msg-attachment:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); }
+.msg-attachment img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 160px;
+  object-fit: cover;
+}
+
+.pending-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.pending-chip {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px 3px 3px;
+  font-size: 11.5px;
+  color: var(--text-soft);
+  max-width: 100%;
+}
+.pending-chip img {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+.pending-name {
+  max-width: 110px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pending-x {
+  background: transparent;
+  border: 0;
+  color: var(--text-mute);
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.pending-x:hover { background: var(--bg-hover); color: var(--error); }
+
+.chat-dropzone {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 85%, transparent);
+  backdrop-filter: blur(6px);
+  border: 2px dashed var(--brand);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--brand);
+  z-index: 30;
+  pointer-events: none;
+  margin: 6px;
+}
+.dz-title { font-size: 14px; font-weight: 600; }
+.dz-sub { font-size: 11.5px; color: var(--text-mute); }
+.dz-enter-active, .dz-leave-active { transition: opacity var(--t-fast); }
+.dz-enter-from, .dz-leave-to { opacity: 0; }
+
+.chip-enter-active, .chip-leave-active { transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.chip-enter-from, .chip-leave-to { opacity: 0; transform: scale(0.9); }
 </style>

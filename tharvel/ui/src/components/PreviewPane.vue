@@ -19,7 +19,29 @@ const emit = defineEmits<{
   (e: 'toggle-chat'): void;
   (e: 'reconnect'): void;
   (e: 'reload-preview'): void;
+  (e: 'upload-asset', file: File): void;
 }>();
+
+// Drag&drop sulla preview = upload come asset del sito (assets/ o public/).
+// Scoped al pannello: la chat ha il suo handler separato per gli allegati effimeri.
+const dragging = ref(false);
+let dragDepth = 0;
+function onDragEnter(e: DragEvent) {
+  if (!e.dataTransfer?.types?.includes('Files')) return;
+  dragDepth += 1;
+  dragging.value = true;
+}
+function onDragLeave() {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dragging.value = false;
+}
+function onDrop(e: DragEvent) {
+  dragDepth = 0;
+  dragging.value = false;
+  const files = e.dataTransfer?.files;
+  if (!files) return;
+  for (const f of Array.from(files)) emit('upload-asset', f);
+}
 
 type Device = 'desktop' | 'tablet' | 'mobile';
 const device = ref<Device>('desktop');
@@ -71,7 +93,14 @@ watch(
 </script>
 
 <template>
-  <main class="preview">
+  <main
+    class="preview"
+    :class="{ dragging }"
+    @dragenter.prevent="onDragEnter"
+    @dragover.prevent
+    @dragleave.prevent="onDragLeave"
+    @drop.prevent="onDrop"
+  >
     <header class="preview-bar">
       <div class="bar-left">
         <span class="status-pill" :class="{ on: isConnected, off: !isConnected && !grace }">
@@ -186,6 +215,20 @@ watch(
         </transition>
       </div>
     </div>
+
+    <transition name="overlay">
+      <div v-if="dragging" class="asset-dropzone">
+        <div class="asset-drop-card">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <div class="asset-drop-title">Salva come asset del sito</div>
+          <div class="asset-drop-sub">Verrà compressa e messa in <code>assets/</code> o <code>public/</code></div>
+        </div>
+      </div>
+    </transition>
 
     <transition name="chip">
       <div v-if="selectedElement" class="element-chip">
@@ -551,5 +594,39 @@ kbd {
 .chip-enter-from, .chip-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(8px);
+}
+
+.asset-dropzone {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 75%, transparent);
+  backdrop-filter: blur(6px);
+  z-index: 20;
+  pointer-events: none;
+}
+.asset-drop-card {
+  background: var(--bg);
+  border: 2px dashed var(--brand);
+  border-radius: var(--radius-lg);
+  padding: 28px 36px;
+  text-align: center;
+  color: var(--brand);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.asset-drop-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.asset-drop-sub { font-size: 12px; color: var(--text-soft); }
+.asset-drop-sub code {
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
 }
 </style>

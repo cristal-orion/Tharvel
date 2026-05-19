@@ -5,6 +5,7 @@ import type { SessionUser } from '../composables/useAuth';
 import HistoryPanel from './HistoryPanel.vue';
 import { useTheme } from '../composables/useTheme';
 import { useResizable } from '../composables/useResizable';
+import { apiUrl } from '../site';
 import logoExtended from '../assets/logo-extended.png';
 import logoMark from '../assets/logo-mark.png';
 
@@ -33,6 +34,7 @@ const emit = defineEmits<{
   (e: 'clear-chat'): void;
   (e: 'select-site', slug: string): void;
   (e: 'add-site'): void;
+  (e: 'upload-asset', file: File): void;
   (e: 'logout'): void;
   (e: 'reload-preview'): void;
   (e: 'toggle-collapse'): void;
@@ -41,6 +43,35 @@ const emit = defineEmits<{
 const sitesOpen = ref(true);
 const assetsOpen = ref(true);
 const historyOpen = ref(true);
+const openMenu = ref<string | null>(null);
+const assetInputEl = ref<HTMLInputElement | null>(null);
+
+function pickAsset() {
+  assetInputEl.value?.click();
+}
+function onPickAsset(e: Event) {
+  const target = e.target as HTMLInputElement;
+  const files = target.files;
+  if (files) {
+    for (const f of Array.from(files)) emit('upload-asset', f);
+  }
+  target.value = '';
+}
+
+// URL del file via endpoint dedicato server-side (bypassa il build Astro):
+// disponibile subito dopo l'upload anche per i siti astro/vite.
+function assetUrl(file: ProjectFile, opts: { download?: boolean } = {}): string {
+  if (!props.activeSlug) return '#';
+  const base = apiUrl(`/api/sites/${encodeURIComponent(props.activeSlug)}/uploads/${encodeURIComponent(file.name)}`);
+  return opts.download ? `${base}?download=1` : base;
+}
+
+function toggleMenu(path: string) {
+  openMenu.value = openMenu.value === path ? null : path;
+}
+function closeMenu() {
+  openMenu.value = null;
+}
 
 const { theme, resolved, cycleTheme } = useTheme();
 
@@ -188,23 +219,96 @@ const toggle = (path: string, current: string[]) => {
       </section>
 
       <section class="section">
-        <button class="section-header" @click="assetsOpen = !assetsOpen">
-          <svg class="caret" :class="{ open: assetsOpen }" width="10" height="10" viewBox="0 0 10 10">
-            <path d="M3 2 L7 5 L3 8 Z" fill="currentColor" />
-          </svg>
-          <span>Assets</span>
-          <span class="count">{{ files.length }}</span>
-        </button>
-        <div v-if="assetsOpen" class="section-body">
-          <div v-if="files.length === 0" class="empty">Trascina un'immagine sulla preview per aggiungerla qui.</div>
-          <label v-for="f in files" :key="f.path" class="file-row">
-            <input
-              type="checkbox"
-              :checked="selected.includes(f.path)"
-              @change="toggle(f.path, selected)"
-            />
-            <span class="file-name" :title="f.name">{{ f.name }}</span>
-          </label>
+        <div class="section-row">
+          <button class="section-header" @click="assetsOpen = !assetsOpen">
+            <svg class="caret" :class="{ open: assetsOpen }" width="10" height="10" viewBox="0 0 10 10">
+              <path d="M3 2 L7 5 L3 8 Z" fill="currentColor" />
+            </svg>
+            <span>Assets</span>
+            <span class="count">{{ files.length }}</span>
+          </button>
+          <button
+            class="section-action"
+            title="Carica un asset (immagine, font, ecc.) nel sito"
+            @click="pickAsset"
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+              <path d="M12 5 V19 M5 12 H19" />
+            </svg>
+          </button>
+        </div>
+        <input
+          ref="assetInputEl"
+          type="file"
+          class="hidden-file-input"
+          multiple
+          @change="onPickAsset"
+        />
+        <div v-if="assetsOpen" class="section-body" @click="closeMenu">
+          <div v-if="files.length === 0" class="empty">Trascina un'immagine sulla preview o usa <strong>+</strong> qui sopra.</div>
+          <div v-for="f in files" :key="f.path" class="file-row" :class="{ 'is-image': f.isImage }">
+            <label class="file-label">
+              <input
+                type="checkbox"
+                :checked="selected.includes(f.path)"
+                @change="toggle(f.path, selected)"
+              />
+              <span class="file-thumb-wrap" v-if="f.isImage">
+                <svg class="file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="4" width="18" height="16" rx="1.5" />
+                  <circle cx="8.5" cy="10" r="1.4" fill="currentColor" />
+                  <path d="M21 16 L15 10 L5 20" />
+                </svg>
+                <span class="thumb-pop" role="tooltip">
+                  <img :src="assetUrl(f)" :alt="f.name" loading="lazy" />
+                </span>
+              </span>
+              <svg v-else class="file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 3 H6 a2 2 0 0 0 -2 2 V19 a2 2 0 0 0 2 2 H18 a2 2 0 0 0 2 -2 V9 Z M14 3 V9 H20" />
+              </svg>
+              <span class="file-name" :title="f.name">{{ f.name }}</span>
+            </label>
+            <div v-if="f.isImage" class="file-menu-wrap">
+              <button
+                class="file-menu-btn"
+                title="Azioni"
+                @click.stop="toggleMenu(f.path)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="5" cy="12" r="1.6" />
+                  <circle cx="12" cy="12" r="1.6" />
+                  <circle cx="19" cy="12" r="1.6" />
+                </svg>
+              </button>
+              <transition name="pop">
+                <div v-if="openMenu === f.path" class="file-menu" @click.stop>
+                  <a
+                    class="fm-item"
+                    :href="assetUrl(f)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    @click="closeMenu"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                      <path d="M15 3 H21 V9 M21 3 L10 14 M21 14 V20 a1 1 0 0 1 -1 1 H4 a1 1 0 0 1 -1 -1 V4 a1 1 0 0 1 1 -1 H10" />
+                    </svg>
+                    Apri in nuova scheda
+                  </a>
+                  <a
+                    class="fm-item"
+                    :href="assetUrl(f, { download: true })"
+                    :download="f.name"
+                    @click="closeMenu"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                      <path d="M12 3 V15 M6 11 L12 17 L18 11 M4 21 H20" />
+                    </svg>
+                    Scarica
+                  </a>
+                </div>
+              </transition>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -570,16 +674,24 @@ const toggle = (path: string, current: string[]) => {
 .file-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
+  gap: 4px;
+  padding: 3px 6px 3px 8px;
   border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-soft);
-  cursor: pointer;
   user-select: none;
   transition: background var(--t-fast), color var(--t-fast);
+  position: relative;
 }
 .file-row:hover { background: var(--bg-hover); color: var(--text); }
+.file-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
 .file-row input[type="checkbox"] {
   width: 13px;
   height: 13px;
@@ -587,12 +699,121 @@ const toggle = (path: string, current: string[]) => {
   accent-color: var(--text);
   cursor: pointer;
 }
+.file-icon { color: var(--text-mute); flex-shrink: 0; }
+.file-row:hover .file-icon { color: var(--text-soft); }
 .file-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   flex: 1;
 }
+
+.file-thumb-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.thumb-pop {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%) translateX(-4px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-fast), transform var(--t-fast);
+  z-index: 250;
+}
+.thumb-pop img {
+  display: block;
+  max-width: 180px;
+  max-height: 180px;
+  border-radius: 4px;
+  object-fit: contain;
+  background: var(--bg-hover);
+}
+.file-row.is-image:hover .thumb-pop {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.file-menu-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.file-menu-btn {
+  background: transparent;
+  border: 0;
+  color: var(--text-mute);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.file-row:hover .file-menu-btn { opacity: 1; }
+.file-menu-btn:hover { background: var(--bg-active); color: var(--text); }
+
+.file-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  padding: 4px;
+  min-width: 180px;
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.fm-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-soft);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.fm-item:hover { background: var(--bg-hover); color: var(--text); }
+.fm-item svg { color: var(--text-mute); flex-shrink: 0; }
+.fm-item:hover svg { color: inherit; }
+
+.section-row {
+  display: flex;
+  align-items: center;
+  padding-right: 8px;
+}
+.section-row .section-header { flex: 1; }
+.section-action {
+  background: transparent;
+  border: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  color: var(--text-mute);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.section-action:hover { background: var(--bg-hover); color: var(--text); }
+
+.hidden-file-input { display: none; }
 
 .sidebar-bottom {
   border-top: 1px solid var(--border);
