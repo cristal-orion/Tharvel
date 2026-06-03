@@ -421,31 +421,42 @@ app.use('/site/:slug', requireAuth, async (req, res, next) => {
   // /tharveladmin/site/<slug>/ e tornano 404.
   if (site.framework === 'astro' || site.framework === 'vite') {
     const reqPath = req.path;
-    const isHtml =
-      reqPath === '/' ||
-      reqPath.endsWith('/') ||
-      reqPath.endsWith('.html');
+    // Richieste "pagina": root, trailing slash, *.html, oppure path senza estensione
+    // (es. /jose, /tenuta — Astro build.format 'directory'). Senza questo ramo i link
+    // interni estensionless cadevano su express.static, che per una directory emette un
+    // redirect a `<path>/` perdendo il prefisso /tharveladmin (strippato da Traefik) → 404.
+    // Gli asset hanno un'estensione (.css/.svg/.js/...) e passano allo static handler sotto.
+    const ext = path.extname(reqPath);
+    const isHtml = ext === '' || ext === '.html';
     if (isHtml) {
       const serveRoot = resolveSiteServeRoot(site);
-      const filePath = reqPath.endsWith('.html')
-        ? path.join(serveRoot, reqPath)
-        : path.join(serveRoot, reqPath, 'index.html');
-      // Path traversal guard: dopo path.join il risultato deve restare dentro serveRoot.
-      const resolved = path.resolve(filePath);
-      if (!resolved.startsWith(path.resolve(serveRoot) + path.sep) && resolved !== path.resolve(serveRoot)) {
-        res.status(400).send('Bad path');
-        return;
-      }
-      try {
-        let html = await fs.readFile(resolved, 'utf-8');
-        html = rewriteHtmlForTenant(html, slug);
-        html = injectOverlay(html);
-        res.set('Content-Type', 'text/html; charset=utf-8');
-        res.set('Cache-Control', 'no-store');
-        res.send(html);
-        return;
-      } catch (e) {
-        // File non trovato → lascia gestire al fallback static (che farà 404).
+      const serveRootResolved = path.resolve(serveRoot);
+      // Replica `try_files $uri $uri/ $uri.html`: file .html esplicito, poi
+      // <path>/index.html (directory mode), poi <path>.html (file mode).
+      const candidates = reqPath.endsWith('.html')
+        ? [path.join(serveRoot, reqPath)]
+        : [
+            path.join(serveRoot, reqPath, 'index.html'),
+            ...(reqPath === '/' ? [] : [path.join(serveRoot, `${reqPath}.html`)]),
+          ];
+      for (const filePath of candidates) {
+        // Path traversal guard: dopo path.join il risultato deve restare dentro serveRoot.
+        const resolved = path.resolve(filePath);
+        if (resolved !== serveRootResolved && !resolved.startsWith(serveRootResolved + path.sep)) {
+          res.status(400).send('Bad path');
+          return;
+        }
+        try {
+          let html = await fs.readFile(resolved, 'utf-8');
+          html = rewriteHtmlForTenant(html, slug);
+          html = injectOverlay(html);
+          res.set('Content-Type', 'text/html; charset=utf-8');
+          res.set('Cache-Control', 'no-store');
+          res.send(html);
+          return;
+        } catch {
+          // Candidato inesistente → prova il prossimo; se nessuno esiste cade allo static (404).
+        }
       }
     }
   }
