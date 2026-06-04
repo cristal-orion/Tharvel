@@ -129,17 +129,50 @@ export async function updateApplicationDomains(uuid: string, domains: string): P
   });
 }
 
-// Aggiunge un FQDN (con eventuale path) all'app Tharvel (uuid da env THARVEL_APP_UUID).
-// Idempotente: se il dominio è già presente, no-op.
-export async function addDomainToTharvel(newDomainWithPath: string): Promise<{ added: boolean; allDomains: string }> {
+// Riavvia (recreate del container) un'app Coolify. Necessario dopo aver cambiato
+// i domini: le label Traefik vengono iniettate alla creazione del container e
+// sono immutabili a runtime, quindi un PATCH /domains aggiorna la config ma NON
+// registra i nuovi router Host(...)&&PathPrefix finché il container non viene
+// ricreato. Senza questo step /tharveladmin sul dominio appena aggiunto cade sul
+// sito cliente (404 / sito normale). La chiamata mette il restart in coda e
+// ritorna subito (il recreate avviene in background, ~1-2 min).
+export async function restartApplication(uuid: string): Promise<void> {
+  await coolifyFetch(`/applications/${uuid}/restart`, { method: 'GET' });
+}
+
+// Restart dell'app Tharvel (uuid da env THARVEL_APP_UUID).
+export async function restartTharvel(): Promise<void> {
   const tharvelUuid = process.env.THARVEL_APP_UUID;
   if (!tharvelUuid) throw new Error('THARVEL_APP_UUID non impostato.');
+  await restartApplication(tharvelUuid);
+}
+
+// Aggiunge uno o più FQDN (con eventuale path) all'app Tharvel (uuid da env
+// THARVEL_APP_UUID). Idempotente: i domini già presenti vengono saltati.
+// Ritorna l'elenco di quelli effettivamente aggiunti (vuoto = nessun cambiamento,
+// quindi il chiamante può evitare un restart inutile).
+export async function addDomainToTharvel(
+  newDomainsWithPath: string | string[],
+): Promise<{ added: string[]; allDomains: string }> {
+  const tharvelUuid = process.env.THARVEL_APP_UUID;
+  if (!tharvelUuid) throw new Error('THARVEL_APP_UUID non impostato.');
+  const incoming = Array.isArray(newDomainsWithPath) ? newDomainsWithPath : [newDomainsWithPath];
   const app = await getApplication(tharvelUuid);
   const existing = (app.fqdn ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  if (existing.some((d) => d.toLowerCase() === newDomainWithPath.toLowerCase())) {
-    return { added: false, allDomains: existing.join(',') };
+  const seen = new Set(existing.map((d) => d.toLowerCase()));
+  const added: string[] = [];
+  for (const d of incoming) {
+    const key = d.toLowerCase();
+    if (!seen.has(key)) {
+      existing.push(d);
+      seen.add(key);
+      added.push(d);
+    }
   }
-  const updated = [...existing, newDomainWithPath].join(',');
+  if (added.length === 0) {
+    return { added: [], allDomains: existing.join(',') };
+  }
+  const updated = existing.join(',');
   await updateApplicationDomains(tharvelUuid, updated);
-  return { added: true, allDomains: updated };
+  return { added, allDomains: updated };
 }

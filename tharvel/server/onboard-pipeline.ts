@@ -5,15 +5,34 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
+import { lookup } from 'node:dns/promises';
 import path from 'node:path';
 import { createSite, getSiteBySlug, type SiteFramework } from './db/sites.js';
 import { createUser, getUserByEmail, type UserRole } from './db/users.js';
 import { hashPassword } from './auth.js';
 import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
-import { addDomainToTharvel } from './coolify-api.js';
+import { addDomainToTharvel, restartTharvel } from './coolify-api.js';
 import { ensurePiSettings } from './pi-settings.js';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,30}$/;
+
+// Estrae il solo host da un FQDN, tollerando schema (http/https) e path eventuali
+// (es. "https://foo.it/tharveladmin" → "foo.it"). Lowercase per confronti stabili.
+function normalizeHost(fqdn: string): string {
+  return fqdn.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').trim().toLowerCase();
+}
+
+// True se l'host risolve via DNS (getaddrinfo: rispetta /etc/hosts + resolver).
+// Usato per decidere se aggiungere l'alias www: aggiungere un host SENZA DNS
+// farebbe fallire in loop l'emissione del cert Let's Encrypt per quel router.
+async function hostResolves(host: string): Promise<boolean> {
+  try {
+    await lookup(host);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export class OnboardError extends Error {
   constructor(public step: string, message: string) {
@@ -169,23 +188,48 @@ export async function onboardSite(input: OnboardInput): Promise<OnboardOutput> {
       slug: input.slug,
     });
 
-    // 7. PATCH Coolify: aggiungi <clientFqdn>/tharveladmin a FQDN app Tharvel.
+    // 7. PATCH Coolify: aggiungi <clientFqdn>/tharveladmin a FQDN app Tharvel,
+    // poi RESTART Tharvel per applicare le label Traefik (immutabili a runtime).
     // Se questo step fallisce dopo che DB è già scritto, il sito è "orfano":
     // registrato in Tharvel ma non instradato. L'utente vedrebbe un errore e
     // potrebbe aggiungere il dominio a mano da UI Coolify (caso edge raro).
+    //
+    // Protocollo: derivato dall'host invece di default http. I domini reali
+    // vanno SEMPRE su https (Coolify genera così sia il router HTTPS+TLS che il
+    // redirect http→https); solo gli sslip.io provvisori restano http. Senza
+    // questo un dominio reale finiva su solo-http → su HTTPS la richiesta cadeva
+    // sul sito cliente invece che su Tharvel.
+    const host = normalizeHost(input.clientFqdn);
+    const isSslip = /\.sslip\.io$/i.test(host);
+    const protocol: 'http' | 'https' = input.protocol ?? (isSslip ? 'http' : 'https');
+
+    // Alias www. automatico per i domini reali (best-effort: solo se il DNS del
+    // www risolve, così non rompiamo i domini configurati solo apex).
+    const hosts = [host];
+    if (!isSslip && !host.startsWith('www.') && (await hostResolves(`www.${host}`))) {
+      hosts.push(`www.${host}`);
+    }
+    const newDomains = hosts.map((h) => `${protocol}://${h}/tharveladmin`);
+
     let tharvelDomainsUpdated = false;
     try {
-      const protocol = input.protocol ?? 'http';
-      const newDomain = `${protocol}://${input.clientFqdn}/tharveladmin`;
-      const result = await addDomainToTharvel(newDomain);
-      tharvelDomainsUpdated = result.added;
+      const result = await addDomainToTharvel(newDomains);
+      tharvelDomainsUpdated = result.added.length > 0;
+      // Recreate solo se abbiamo davvero aggiunto domini, altrimenti è inutile
+      // (e blipperebbe gli admin degli altri tenant senza motivo).
+      if (result.added.length > 0) {
+        try {
+          await restartTharvel();
+        } catch (e: any) {
+          console.error('[onboard] restart Tharvel fallito (domini aggiunti, riavvia a mano):', e?.message);
+        }
+      }
     } catch (e: any) {
       // Non rollback: meglio sito-orfano che cancellare un onboarding andato a buon fine.
       console.error('[onboard] FQDN PATCH fallito (sito registrato comunque):', e?.message);
     }
 
-    const protocol = input.protocol ?? 'http';
-    const adminUrl = `${protocol}://${input.clientFqdn}/tharveladmin`;
+    const adminUrl = `${protocol}://${host}/tharveladmin`;
     return {
       siteId: site.id,
       userId: user.id,
