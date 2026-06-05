@@ -876,6 +876,13 @@ Regole fondamentali:
     let currentTurnPrompt = '';
     let currentTurnHadError = false;
 
+    // File caricati via upload_file (asset "+") ma non ancora menzionati all'agente.
+    // Vengono salvati su disco subito, ma l'agente non ne sa nulla (nessun turno
+    // automatico, per non sprecarne uno). Accumuliamo i path qui e li anteponiamo
+    // al prossimo prompt reale, così l'agente sa dove guardare quando l'utente dice
+    // "usa questa foto". Vedi gotcha "upload invisibile all'agente".
+    let pendingUploadNotices: string[] = [];
+
     const unsubscribe = session.subscribe((event) => {
       // Logging diagnostico: per message_update stampiamo anche il sotto-tipo (text_delta,
       // reasoning_delta, tool_call_progress, ecc.) e un'anteprima del payload, perché il
@@ -1002,8 +1009,10 @@ Regole fondamentali:
           }));
 
           // Nessun session.prompt() automatico: consumava un turno e confondeva l'agente
-          // quando l'utente subito dopo inviava il vero comando di modifica. L'agente troverà
-          // il file via `ls assets/` quando necessario (vedi AGENTS.md virtuale).
+          // quando l'utente subito dopo inviava il vero comando di modifica.
+          // Però l'agente NON sa che il file esiste né dove sta: registriamo il path
+          // così viene anteposto al prossimo prompt reale (vedi pendingUploadNotices).
+          pendingUploadNotices.push(`${defaultUploadsRel}/${finalFileName}`);
         } catch (error: any) {
           ws.send(JSON.stringify({ type: 'error', message: error.message || 'Errore salvataggio file' }));
         }
@@ -1029,6 +1038,7 @@ Regole fondamentali:
 
         if (text.startsWith('/clear')) {
           session.agent.state.messages = [];
+          pendingUploadNotices = [];
           ws.send(JSON.stringify({ type: 'system', content: `🧹 Memoria della chat cancellata.` }));
           ws.send(JSON.stringify({ type: 'done' }));
           return;
@@ -1047,15 +1057,23 @@ Regole fondamentali:
               }))
           : undefined;
 
-        // Cattura il prompt utente per l'auto-commit a fine turn.
+        // Cattura il prompt utente per l'auto-commit a fine turn (solo il testo reale).
         currentTurnPrompt = text;
         currentTurnHadError = false;
 
+        // Se ci sono file appena caricati via "+" di cui l'agente non sa nulla,
+        // anteponiamo i loro path al prompt così sa dove guardare quando li menziona.
+        let promptForAgent = text;
+        if (pendingUploadNotices.length > 0) {
+          promptForAgent = `[Sistema — l'utente ha appena caricato questi file, già salvati su disco e pronti all'uso quando li menziona (NON usarli se non te lo chiede esplicitamente): ${pendingUploadNotices.join(', ')}]\n\n${text}`;
+          pendingUploadNotices = [];
+        }
+
         try {
           if (images && images.length > 0) {
-            await session.prompt(text, images);
+            await session.prompt(promptForAgent, images);
           } else {
-            await session.prompt(text);
+            await session.prompt(promptForAgent);
           }
         } catch (error: any) {
           ws.send(JSON.stringify({ type: 'error', message: error.message || 'Errore sconosciuto' }));
