@@ -139,6 +139,9 @@ onMounted(() => loadModels());
                 type="password"
                 v-model="apiKeyInputs[p.id]"
                 :placeholder="auth[p.id] === 'connected' ? '••••••••••••' : 'Incolla la API key'"
+                autocomplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
               />
               <button class="btn btn-primary" @click="handleSubmit(p.id)" :disabled="!apiKeyInputs[p.id]?.trim()">
                 Salva
@@ -168,16 +171,38 @@ onMounted(() => loadModels());
 
             <div class="cm-form">
               <div class="cm-row">
-                <input v-model="modelId" class="cm-input" placeholder="id modello (es. gpt-5.6)" spellcheck="false" />
-                <input v-model="label" class="cm-input" placeholder="etichetta (opzionale)" />
+                <input
+                  v-model="modelId"
+                  class="cm-input"
+                  placeholder="id modello (es. gpt-5.6)"
+                  spellcheck="false"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  name="tharvel-model-id"
+                />
+                <input
+                  v-model="label"
+                  class="cm-input"
+                  placeholder="etichetta (opzionale)"
+                  spellcheck="false"
+                  autocomplete="off"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  name="tharvel-model-label"
+                />
               </div>
 
               <button type="button" class="cm-adv" @click="showAdvanced = !showAdvanced">
                 {{ showAdvanced ? '− Opzioni avanzate' : '+ Opzioni avanzate' }}
               </button>
               <div v-if="showAdvanced" class="cm-row">
-                <input v-model.number="contextWindow" class="cm-input" type="number" min="1" placeholder="context window (token)" />
-                <input v-model.number="maxTokens" class="cm-input" type="number" min="1" placeholder="max output (token)" />
+                <input v-model.number="contextWindow" class="cm-input" type="number" min="1" placeholder="context window (token)" autocomplete="off" data-1p-ignore data-lpignore="true" />
+                <input v-model.number="maxTokens" class="cm-input" type="number" min="1" placeholder="max output (token)" autocomplete="off" data-1p-ignore data-lpignore="true" />
               </div>
               <p v-if="showAdvanced" class="cm-adv-note">
                 Lascia vuoto per ereditare i valori del modello Codex più recente noto.
