@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
-import { PROVIDERS, findProvider, parseSelected } from '../composables/providers';
+import { PROVIDERS, findProvider, parseSelected, type ProviderModel } from '../composables/providers';
+import { useModels } from '../composables/useModels';
 import ProviderIcon from './ProviderIcon.vue';
 
 const props = defineProps<{
@@ -13,14 +14,25 @@ const emit = defineEmits<{
   (e: 'open-settings'): void;
 }>();
 
+const { loadModels, customFor } = useModels();
+
 const open = ref(false);
 const expanded = ref<string | null>(null);
 const root = ref<HTMLElement | null>(null);
 
+// Modelli mostrati per un provider: built-in statici + custom aggiunti dall'admin.
+const modelsFor = (providerId: string): ProviderModel[] => {
+  const base = findProvider(providerId)?.models ?? [];
+  const custom = customFor(providerId).map((m) => ({ id: m.id, label: m.label }));
+  // Dedup per id (un custom con stesso id di un built-in non appare due volte).
+  const seen = new Set(base.map((m) => m.id));
+  return [...base, ...custom.filter((m) => !seen.has(m.id))];
+};
+
 const current = computed(() => {
   const { provider, model } = parseSelected(props.selected);
   const p = findProvider(provider);
-  const m = p?.models.find((mm) => mm.id === model);
+  const m = modelsFor(provider).find((mm) => mm.id === model);
   return {
     providerLabel: p?.label || provider,
     modelLabel: m?.label || model,
@@ -47,7 +59,10 @@ const select = (provId: string, modelId: string) => {
   close();
 };
 
-onMounted(() => document.addEventListener('mousedown', onDocClick));
+onMounted(() => {
+  document.addEventListener('mousedown', onDocClick);
+  loadModels();
+});
 onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
 </script>
 
@@ -95,7 +110,7 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
             </button>
             <div v-if="expanded === p.id" class="prov-models">
               <button
-                v-for="m in p.models"
+                v-for="m in modelsFor(p.id)"
                 :key="m.id"
                 class="model-row"
                 :class="{ active: selected === `${p.id}/${m.id}` }"

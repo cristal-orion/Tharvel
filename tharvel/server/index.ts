@@ -36,6 +36,14 @@ import {
 } from './db/revisions.js';
 import { resetPreviewTo, rebuildSite } from './revisions-ops.js';
 import {
+  listCustomModels,
+  getCustomModel,
+  upsertCustomModel,
+  deleteCustomModel,
+  type CustomModel,
+} from './db/custom-models.js';
+import { buildCodexModel, testModelConnection } from './model-testing.js';
+import {
   requireAuth,
   requireAdmin,
   verifyPassword,
@@ -366,6 +374,134 @@ app.post('/api/admin/onboard-site', requireAuth, requireAdmin, async (req, res) 
       res.status(500).json({ error: `Errore inatteso: ${e?.message ?? String(e)}` });
     }
   }
+});
+
+// --- Modelli custom (aggiunti a mano dall'admin oltre ai built-in dell'SDK) ---
+// Motivazione: quando esce un nuovo modello ChatGPT/Codex dopo il pin dell'SDK,
+// non è selezionabile perché ModelRegistry.find() non lo conosce. Qui l'admin lo
+// registra per id + fa un test di connessione. Scope GLOBALE (subscription
+// condivisa). Vedi model-testing.ts e db/custom-models.ts.
+
+// Provider su cui è abilitato l'inserimento manuale. Per ora solo Codex: il suo
+// transport OAuth inoltra l'id come stringa, quindi un id nuovo funziona senza
+// update dell'SDK. Estendibile agli altri provider quando validato.
+const CUSTOM_MODEL_PROVIDERS = new Set(['openai-codex']);
+const MODEL_ID_RE = /^[a-zA-Z0-9._-]{1,64}$/;
+
+function serializeCustomModel(m: CustomModel) {
+  return {
+    provider: m.provider,
+    id: m.model_id,
+    label: m.label,
+    contextWindow: m.context_window,
+    maxTokens: m.max_tokens,
+  };
+}
+
+// Lista modelli custom (per il picker/settings). Auth: qualsiasi utente loggato
+// (serve al client per popolare il picker); scrittura invece solo admin.
+app.get('/api/models', requireAuth, (_req, res) => {
+  res.json({ models: listCustomModels().map(serializeCustomModel) });
+});
+
+// Parsing + validazione comune del body per test/add.
+// Tipo a forma singola con `error` opzionale (niente discriminated union: il
+// tsconfig del server ha strict:false e il narrowing su `ok:true/false` non è
+// affidabile). Se `error` è valorizzato gli altri campi sono da ignorare.
+interface ParsedModelBody {
+  error?: string;
+  provider: string;
+  modelId: string;
+  label: string;
+  contextWindow: number | null;
+  maxTokens: number | null;
+}
+
+function parseModelBody(body: Record<string, unknown>): ParsedModelBody {
+  const provider = typeof body.provider === 'string' ? body.provider.trim() : 'openai-codex';
+  const modelId = typeof body.modelId === 'string' ? body.modelId.trim() : '';
+  const label = typeof body.label === 'string' && body.label.trim() ? body.label.trim() : modelId;
+
+  const toIntOrNull = (v: unknown): number | null => {
+    if (v == null || v === '') return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+  };
+  const base: ParsedModelBody = {
+    provider,
+    modelId,
+    label,
+    contextWindow: toIntOrNull(body.contextWindow),
+    maxTokens: toIntOrNull(body.maxTokens),
+  };
+
+  if (!CUSTOM_MODEL_PROVIDERS.has(provider)) {
+    return { ...base, error: `Provider non supportato per l'inserimento manuale: "${provider}". Al momento solo Codex.` };
+  }
+  if (!MODEL_ID_RE.test(modelId)) {
+    return { ...base, error: 'Id modello non valido. Usa solo lettere, numeri, punto, trattino e underscore (es. gpt-5.6).' };
+  }
+  return base;
+}
+
+// Test di connessione: costruisce il Model al volo e fa un ping con l'auth OAuth
+// già salvata. NON persiste nulla — serve solo a validare prima di salvare.
+app.post('/api/admin/models/test', requireAuth, requireAdmin, async (req, res) => {
+  const parsed = parseModelBody((req.body ?? {}) as Record<string, unknown>);
+  if (parsed.error) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  try {
+    const authStorage = AuthStorage.create();
+    const registry = ModelRegistry.create(authStorage);
+    const model = buildCodexModel(registry, {
+      modelId: parsed.modelId,
+      label: parsed.label,
+      contextWindow: parsed.contextWindow,
+      maxTokens: parsed.maxTokens,
+    });
+    const result = await testModelConnection(registry, model);
+    if (result.ok) {
+      res.json({ ok: true, sample: result.sample });
+    } else {
+      res.json({ ok: false, error: result.error });
+    }
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message ?? String(e) });
+  }
+});
+
+// Salva (upsert) un modello custom. Il frontend chiama /test prima, ma per
+// robustezza qui NON rifacciamo il test: salvare un modello che al momento non
+// risponde è lecito (es. rollout graduale lato provider).
+app.post('/api/admin/models/custom', requireAuth, requireAdmin, (req, res) => {
+  const parsed = parseModelBody((req.body ?? {}) as Record<string, unknown>);
+  if (parsed.error) {
+    res.status(400).json({ error: parsed.error });
+    return;
+  }
+  const saved = upsertCustomModel({
+    provider: parsed.provider,
+    model_id: parsed.modelId,
+    label: parsed.label,
+    context_window: parsed.contextWindow,
+    max_tokens: parsed.maxTokens,
+  });
+  console.log(`[MODELS] custom model salvato: ${saved.provider}/${saved.model_id} ("${saved.label}")`);
+  res.json({ model: serializeCustomModel(saved) });
+});
+
+app.delete('/api/admin/models/custom/:provider/:modelId', requireAuth, requireAdmin, (req, res) => {
+  const provider = String(req.params.provider);
+  const modelId = String(req.params.modelId);
+  const removed = deleteCustomModel(provider, modelId);
+  if (!removed) {
+    res.status(404).json({ error: 'Modello custom non trovato.' });
+    return;
+  }
+  console.log(`[MODELS] custom model rimosso: ${provider}/${modelId}`);
+  res.json({ ok: true });
 });
 
 // Overlay Tharvel (CSS + JS per Alt+click) iniettato negli HTML dei siti che non
@@ -957,7 +1093,21 @@ Regole fondamentali:
       
       if (data.type === 'set_model') {
         const [provider, modelId] = data.model.split('/');
-        const newModel = modelRegistry.find(provider, modelId);
+        // 1) Modelli built-in noti all'SDK.
+        let newModel = modelRegistry.find(provider, modelId);
+        // 2) Fallback: modelli custom aggiunti dall'admin (non presenti nel
+        //    registry). Costruiamo l'oggetto Model al volo clonando il template.
+        if (!newModel && provider === 'openai-codex') {
+          const custom = getCustomModel(provider, modelId);
+          if (custom) {
+            newModel = buildCodexModel(modelRegistry, {
+              modelId: custom.model_id,
+              label: custom.label,
+              contextWindow: custom.context_window,
+              maxTokens: custom.max_tokens,
+            });
+          }
+        }
         if (newModel) {
           await session.setModel(newModel);
           ws.send(JSON.stringify({ type: 'system', content: `✅ Modello cambiato in: ${newModel.name}` }));

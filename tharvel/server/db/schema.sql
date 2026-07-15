@@ -52,3 +52,22 @@ CREATE TABLE IF NOT EXISTS site_revisions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_revisions_site ON site_revisions(site_id, created_at DESC);
+
+-- Modelli aggiunti a mano dall'admin oltre a quelli built-in dell'SDK.
+-- Caso d'uso: un nuovo modello ChatGPT/Codex esce dopo il pin dell'SDK
+-- (pi-coding-agent 0.73 conosce fino a gpt-5.5) — l'admin lo registra qui
+-- indicando l'id esatto accettato dal backend del provider. Il transport
+-- OAuth di Codex inoltra l'id come stringa, quindi il modello funziona senza
+-- update dell'SDK. context_window/max_tokens sono opzionali: se NULL vengono
+-- clonati dal template built-in dello stesso provider (vedi buildCodexModel).
+-- Scope GLOBALE (non per-sito): è la subscription condivisa gestita dall'admin.
+CREATE TABLE IF NOT EXISTS custom_models (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  provider TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  label TEXT NOT NULL,
+  context_window INTEGER,
+  max_tokens INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(provider, model_id)
+);
