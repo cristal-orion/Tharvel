@@ -1,5 +1,5 @@
 import { ref, reactive, onMounted, onUnmounted, watch, type Ref } from 'vue';
-import { buildWsUrl } from '../site';
+import { buildWsUrl, BASE_PATH } from '../site';
 
 export type Role = 'user' | 'ai' | 'system';
 export interface ChatAttachment {
@@ -46,6 +46,15 @@ export function useTharvelSession(slug: Ref<string | null>) {
   // all'LLM come ImageContent. Caso d'uso tipico: screenshot di riferimento.
   const pendingImages = ref<PendingImage[]>([]);
   const iframeNonce = ref(0);
+  // Rotta della preview. Due ref distinti di proposito:
+  //  - previewPath: dove PUNTIAMO l'iframe. Genera il src, quindi cambiarlo ricarica
+  //    la pagina: si muove solo su navigazione esplicita o reload.
+  //  - currentPreviewPath: dove l'iframe si trova DAVVERO. Lo riporta
+  //    preview-bootstrap.html via postMessage, anche quando l'app naviga
+  //    client-side senza reload. Serve alla barra indirizzo e a non rimbalzare in
+  //    home quando ricarichiamo dopo una modifica dell'agente.
+  const previewPath = ref('/');
+  const currentPreviewPath = ref('/');
   // Bumpa quando il server segnala che una nuova revisione è stata committata
   // (event `history_updated`, emesso dopo che l'auto-commit a fine turn riesce).
   // Il pannello Storico osserva questo contatore per fare refetch.
@@ -70,7 +79,39 @@ export function useTharvelSession(slug: Ref<string | null>) {
     if (ws && isConnected.value) ws.send(JSON.stringify(payload));
   };
 
+  // Accetta un path ("/casestudy"), un path senza slash ("casestudy") o una URL
+  // intera incollata dalla barra del browser — inclusa quella della preview, di cui
+  // togliamo il prefisso del tenant.
+  const normalizePreviewPath = (raw: string): string => {
+    let out = (raw || '').trim();
+    if (!out) return '/';
+    if (/^https?:\/\//i.test(out)) {
+      try {
+        const u = new URL(out);
+        out = `${u.pathname}${u.search}${u.hash}`;
+      } catch {
+        /* non è una URL valida: la trattiamo come path */
+      }
+    }
+    if (!out.startsWith('/')) out = `/${out}`;
+    const prefix = `${BASE_PATH}/site/${slug.value ?? ''}`;
+    if (out === prefix) return '/';
+    if (out.startsWith(`${prefix}/`)) out = out.slice(prefix.length);
+    return out || '/';
+  };
+
+  // Navigazione manuale a una rotta del sito. Serve per le pagine che non sono
+  // raggiungibili da un link nella UI del sito (landing linkate solo da mail,
+  // preventivi, QR…): senza questo non c'è modo di aprirle in preview.
+  const navigatePreview = (raw: string) => {
+    previewPath.value = normalizePreviewPath(raw);
+    iframeNonce.value = Date.now();
+  };
+
   const reloadIframe = () => {
+    // Ricarica restando sulla pagina che l'utente sta guardando: dopo una modifica
+    // dell'agente la preview non deve rimbalzare in home.
+    previewPath.value = currentPreviewPath.value || previewPath.value;
     iframeNonce.value = Date.now();
   };
 
@@ -147,6 +188,9 @@ export function useTharvelSession(slug: Ref<string | null>) {
   // Riconnessione su cambio slug (per admin che switcha sito).
   watch(slug, (next, prev) => {
     if (next === prev) return;
+    // La rotta è per-sito: /casestudy esiste su twobee, non sugli altri.
+    previewPath.value = '/';
+    currentPreviewPath.value = '/';
     disconnect();
     if (next) connect();
   });
@@ -255,18 +299,24 @@ export function useTharvelSession(slug: Ref<string | null>) {
     if (slug.value) connect();
   };
 
-  const onElementMessage = (e: MessageEvent) => {
+  const onPreviewMessage = (e: MessageEvent) => {
     if (e.data?.type === 'THARVEL_ELEMENT_SELECTED') {
       selectedElement.value = e.data.info;
+      return;
+    }
+    // Solo display + memoria per il prossimo reload: NON tocca previewPath, o ogni
+    // navigazione interna del sito farebbe ripartire l'iframe in loop.
+    if (e.data?.type === 'THARVEL_ROUTE_CHANGED' && typeof e.data.path === 'string') {
+      currentPreviewPath.value = e.data.path || '/';
     }
   };
 
   onMounted(() => {
     connect();
-    window.addEventListener('message', onElementMessage);
+    window.addEventListener('message', onPreviewMessage);
   });
   onUnmounted(() => {
-    window.removeEventListener('message', onElementMessage);
+    window.removeEventListener('message', onPreviewMessage);
     disconnect();
   });
 
@@ -279,6 +329,9 @@ export function useTharvelSession(slug: Ref<string | null>) {
     selectedElement,
     selectedModel,
     iframeNonce,
+    previewPath,
+    currentPreviewPath,
+    navigatePreview,
     historyNonce,
     auth,
     pendingImages,

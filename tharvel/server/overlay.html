@@ -14,10 +14,14 @@
     if (window.__tharvelAssetRewriteInstalled) return;
     window.__tharvelAssetRewriteInstalled = true;
 
-    // Il prefix viene dal path della pagina, es. "/tharveladmin/site/twobee".
-    const match = location.pathname.match(/^(\/[^/]+\/site\/[^/]+)/);
-    if (!match) return; // non sotto namespace Tharvel, niente da fare
-    const PREFIX = match[1];
+    // Il prefix lo inietta il server (preview-bootstrap.html), es.
+    // "/tharveladmin/site/twobee". NON si può più dedurre da location.pathname:
+    // il bootstrap la riallinea alla rotta di produzione ("/casestudy") perché il
+    // router del sito la legge. Il fallback sul path copre solo il caso in cui
+    // l'HTML venga servito senza bootstrap.
+    const PREFIX = window.__THARVEL_PREFIX
+      || (location.pathname.match(/^(\/[^/]+\/site\/[^/]+)/) || [])[1];
+    if (!PREFIX) return; // non sotto namespace Tharvel, niente da fare
 
     const needsRewrite = (v) => {
       if (!v) return false;

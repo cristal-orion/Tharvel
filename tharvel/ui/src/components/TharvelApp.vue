@@ -128,6 +128,8 @@ const noSlug = computed(() => !activeSlug.value);
       <PreviewPane
         :slug="activeSlug as string"
         :iframe-nonce="session.iframeNonce.value"
+        :preview-path="session.previewPath.value"
+        :current-path="session.currentPreviewPath.value"
         :selected-element="session.selectedElement.value"
         :chat-hidden="chatHidden"
         :is-connected="session.isConnected.value"
@@ -137,6 +139,7 @@ const noSlug = computed(() => !activeSlug.value);
         @toggle-chat="chatHidden = !chatHidden"
         @reconnect="session.reconnect()"
         @reload-preview="session.reloadIframe()"
+        @navigate="session.navigatePreview($event)"
         @upload-asset="session.uploadFile($event)"
       />
 

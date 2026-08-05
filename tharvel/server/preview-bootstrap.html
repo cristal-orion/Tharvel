@@ -1,0 +1,73 @@
+<script>
+  /* Tharvel preview bootstrap — iniettato come PRIMO figlio di <head>, quindi prima
+     di qualunque script del sito (gli inline dell'head vengono dopo di noi, i module
+     script sono deferred).
+
+     PERCHÉ SERVE
+     La preview vive sotto PREFIX = <BASE_PATH>/site/<slug>, ma il sito è scritto per
+     stare sulla root del dominio cliente. I router client-side leggono
+     window.location.pathname per decidere cosa renderizzare (react-router,
+     vue-router, o un semplice switch su path come TwoBee). Sotto il prefisso
+     vedrebbero "/tharveladmin/site/twobee/casestudy": nessuna rotta corrisponde →
+     renderizzano la home (o un 404) invece della pagina richiesta.
+
+     FIX
+     Allineiamo la URL del documento alla rotta "di produzione" con
+     history.replaceState: same-origin, nessuna richiesta di rete, nessuna entry in
+     più nella history (replace, non push). Da qui in poi l'app si vede esattamente
+     come sul dominio del cliente.
+
+     PERCHÉ NON SI ROMPONO GLI ASSET
+     - href/src del documento sono già stati riscritti absolute-con-prefisso dal
+       server (rewriteHtmlForTenant), quindi non dipendono dalla URL del documento;
+     - gli import dinamici di Vite si risolvono contro la URL del MODULO, non del
+       documento;
+     - i modulepreload root-relative che Vite inietta a runtime li sistema il
+       MutationObserver dell'overlay, che legge il prefisso da __THARVEL_PREFIX.
+
+     PERCHÉ NON USIAMO <base href>
+     Sarebbe la via breve per i path relativi, ma con un <base> ogni href="#sezione"
+     diventa una navigazione full-page invece di uno scroll: romperebbe le ancore su
+     tutti i siti. I path relativi li risolve il server a monte. */
+  (function () {
+    if (window.__tharvelPreviewBootstrapped) return;
+    window.__tharvelPreviewBootstrapped = true;
+
+    var PREFIX = __THARVEL_PREFIX__;
+    var ROUTE = __THARVEL_ROUTE__;
+    window.__THARVEL_PREFIX = PREFIX;
+    window.__THARVEL_ROUTE = ROUTE;
+
+    try {
+      history.replaceState(history.state, '', ROUTE + location.hash);
+    } catch (e) {
+      /* Se il browser rifiuta il replaceState la preview resta sul path con
+         prefisso: si vede la home invece della rotta, ma non si rompe nulla. */
+    }
+
+    // Tiene aggiornata la barra indirizzo del pannello Tharvel: la rotta può
+    // cambiare senza reload quando l'app naviga client-side (pushState).
+    var notify = function () {
+      try {
+        window.parent.postMessage({
+          type: 'THARVEL_ROUTE_CHANGED',
+          path: location.pathname + location.search + location.hash,
+        }, '*');
+      } catch (e) {}
+    };
+
+    ['pushState', 'replaceState'].forEach(function (name) {
+      var original = history[name];
+      if (typeof original !== 'function') return;
+      history[name] = function () {
+        var out = original.apply(this, arguments);
+        notify();
+        return out;
+      };
+    });
+    window.addEventListener('popstate', notify);
+    window.addEventListener('hashchange', notify);
+
+    notify();
+  })();
+</script>

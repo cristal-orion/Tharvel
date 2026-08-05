@@ -7,6 +7,10 @@ import EmptyState from './EmptyState.vue';
 const props = defineProps<{
   slug: string;
   iframeNonce: number;
+  // Rotta a cui è puntato l'iframe (genera il src) vs rotta in cui l'iframe si trova
+  // davvero (cambia anche per navigazione client-side del sito). Vedi useTharvelSession.
+  previewPath: string;
+  currentPath: string;
   selectedElement: SelectedElement | null;
   chatHidden: boolean;
   isConnected: boolean;
@@ -19,6 +23,7 @@ const emit = defineEmits<{
   (e: 'toggle-chat'): void;
   (e: 'reconnect'): void;
   (e: 'reload-preview'): void;
+  (e: 'navigate', path: string): void;
   (e: 'upload-asset', file: File): void;
 }>();
 
@@ -46,8 +51,23 @@ function onDrop(e: DragEvent) {
 type Device = 'desktop' | 'tablet' | 'mobile';
 const device = ref<Device>('desktop');
 
-const iframeSrc = computed(
-  () => `${buildSiteBase(props.slug)}/index.html?_=${props.iframeNonce}`
+const iframeSrc = computed(() => {
+  const p = props.previewPath || '/';
+  const sep = p.includes('?') ? '&' : '?';
+  return `${buildSiteBase(props.slug)}${p}${sep}_=${props.iframeNonce}`;
+});
+
+// Barra indirizzo. Input "morbido": mostra la rotta reale dell'iframe, ma mentre
+// l'utente sta digitando non gliela sovrascriviamo sotto le dita.
+const pathDraft = ref(props.currentPath || '/');
+const pathFocused = ref(false);
+watch(
+  () => props.currentPath,
+  (v) => { if (!pathFocused.value) pathDraft.value = v || '/'; },
+);
+watch(
+  () => props.slug,
+  () => { pathDraft.value = '/'; },
 );
 
 const widths: Record<Device, string> = {
@@ -74,7 +94,8 @@ function retry() {
 }
 
 function openInTab() {
-  window.open(`${buildSiteBase(props.slug)}/index.html`, '_blank', 'noopener,noreferrer');
+  const p = props.currentPath || props.previewPath || '/';
+  window.open(`${buildSiteBase(props.slug)}${p}`, '_blank', 'noopener,noreferrer');
 }
 
 const previewFailed = computed(() => !props.isConnected && !grace.value);
@@ -109,6 +130,24 @@ watch(
         </span>
         <span class="path-sep">·</span>
         <span class="path-leaf">{{ slug }}</span>
+        <form class="path-form" @submit.prevent="emit('navigate', pathDraft)">
+          <input
+            v-model="pathDraft"
+            class="path-input"
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            placeholder="/"
+            title="Vai a una rotta del sito, es. /casestudy — utile per le pagine raggiungibili solo da link diretto. Invio per aprirla."
+            @focus="pathFocused = true"
+            @blur="pathFocused = false; pathDraft = currentPath || '/'"
+          />
+        </form>
+        <button class="icon-btn sm" @click="emit('reload-preview')" title="Ricarica la preview (resta su questa pagina)">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+            <path d="M3 12 a9 9 0 1 0 3 -6.7 L3 8 M3 3 V8 H8" />
+          </svg>
+        </button>
       </div>
 
       <div class="device-tabs">
@@ -275,7 +314,28 @@ watch(
   min-width: 0;
 }
 .path-sep { color: var(--text-mute); }
-.path-leaf { color: var(--text); font-weight: 500; font-family: var(--font-mono); font-size: 12.5px; }
+.path-leaf { color: var(--text); font-weight: 500; font-family: var(--font-mono); font-size: 12.5px; flex-shrink: 0; }
+
+.path-form { flex: 1; min-width: 60px; display: flex; }
+.path-input {
+  width: 100%;
+  min-width: 0;
+  background: var(--bg-hover);
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  transition: all var(--t-fast);
+}
+.path-input:hover { border-color: var(--border); }
+.path-input:focus {
+  outline: none;
+  background: var(--bg);
+  border-color: var(--brand);
+  color: var(--text);
+}
 
 .status-pill {
   display: inline-flex;
@@ -512,6 +572,7 @@ kbd {
   color: var(--text);
   border-color: var(--text);
 }
+.icon-btn.sm { width: 26px; height: 26px; flex-shrink: 0; }
 
 .preview-stage {
   flex: 1;

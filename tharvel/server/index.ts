@@ -508,19 +508,74 @@ app.delete('/api/admin/models/custom/:provider/:modelId', requireAuth, requireAd
 // includono già lo snippet (es. build Astro). Caricato una volta sola al boot.
 import { readFileSync, existsSync } from 'node:fs';
 const THARVEL_OVERLAY = readFileSync(path.resolve(__dirname, 'overlay.html'), 'utf-8');
+const PREVIEW_BOOTSTRAP = readFileSync(path.resolve(__dirname, 'preview-bootstrap.html'), 'utf-8');
 
-// Riscrive gli href/src "assoluti dalla root" con il prefisso BASE_PATH/site/<slug>/.
-// Necessario per i siti SSG (Astro & co.) buildati con base path arbitrario:
-// Astro applica `base` agli asset compilati, ma i link <a href="/about/"> nei
-// template restano grezzi e finirebbero fuori dal mount del tenant.
-// Senza il BASE_PATH davanti, su un dominio cliente i link assoluti uscirebbero
-// completamente dal namespace Tharvel e cadrebbero sul sito pubblicato.
+// Rotta che la pagina avrebbe sul dominio del cliente, cioè quello che il router
+// client-side del sito si aspetta di leggere in location.pathname. Deriva dal path
+// della richiesta (già ripulito da Express del mount /site/:slug) meno:
+//  - l'`index.html` implicito (`/index.html` → `/`, `/sub/index.html` → `/sub/`);
+//  - il cache-buster `_` che l'iframe della preview aggiunge a ogni reload.
+function virtualRouteFor(req: express.Request): string {
+  const routePath = req.path.replace(/index\.html$/, '') || '/';
+  const qIndex = req.url.indexOf('?');
+  if (qIndex < 0) return routePath;
+  const params = new URLSearchParams(req.url.slice(qIndex + 1));
+  params.delete('_');
+  const qs = params.toString();
+  return qs ? `${routePath}?${qs}` : routePath;
+}
+
+// Rimappa un singolo URL del documento dentro il namespace del tenant.
+// Ritorna null quando l'URL va lasciato invariato.
 //
-// Match: attributo (href|src) seguito da "/" SINGOLO (no //, no http://, ecc.).
-// Non tocca: //cdn..., http(s)://..., data:, mailto:, # ancore, path relativi.
-function rewriteHtmlForTenant(html: string, slug: string): string {
+// `base` è la URL che la pagina ha in produzione: serve a risolvere i path
+// relativi esattamente come farebbe il browser sul dominio del cliente. È
+// necessario perché preview-bootstrap.html riallinea location.pathname alla rotta
+// virtuale: senza risolverli qui, un `src="assets/x.png"` finirebbe sulla root del
+// dominio, fuori dal namespace Tharvel.
+function mapTenantUrl(value: string, prefix: string, base: URL): string | null {
+  const v = value.trim();
+  if (!v) return null;
+  if (v.startsWith('#')) return null; // ancora nella stessa pagina
+  if (v.startsWith('//')) return null; // protocol-relative
+  if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return null; // http:, mailto:, tel:, data:, javascript:
+  if (v.startsWith('/')) {
+    if (v === prefix || v.startsWith(`${prefix}/`)) return null; // già dentro il namespace
+    return `${prefix}${v}`;
+  }
+  try {
+    const resolved = new URL(v, base);
+    return `${prefix}${resolved.pathname}${resolved.search}${resolved.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+// Riscrive gli href/src del documento con il prefisso BASE_PATH/site/<slug>.
+// Necessario perché i siti sono scritti per stare sulla root del dominio cliente:
+// Astro applica `base` agli asset compilati, ma i link <a href="/about/"> nei
+// template restano grezzi, e le SPA Vite emettono `/assets/...` assoluti. Senza il
+// prefisso questi URL escono dal namespace Tharvel e cadono sul sito pubblicato.
+function rewriteHtmlForTenant(html: string, slug: string, route: string): string {
   const prefix = `${BASE_PATH}/site/${slug}`;
-  return html.replace(/\b(href|src)="\/(?!\/)/g, `$1="${prefix}/`);
+  // Host fittizio: di questa URL usiamo solo path/search/hash.
+  const base = new URL(route, 'http://tharvel.invalid');
+  return html.replace(/\b(href|src)="([^"]*)"/gi, (full, attr: string, value: string) => {
+    const mapped = mapTenantUrl(value, prefix, base);
+    return mapped === null ? full : `${attr}="${mapped}"`;
+  });
+}
+
+// Inietta il bootstrap della preview (riallineamento rotta + report al pannello)
+// come primo figlio di <head>: deve girare prima di qualunque script del sito.
+function injectPreviewBootstrap(html: string, slug: string, route: string): string {
+  if (html.includes('__tharvelPreviewBootstrapped')) return html;
+  const script = PREVIEW_BOOTSTRAP.replace(/__THARVEL_(PREFIX|ROUTE)__/g, (_m, key: string) =>
+    JSON.stringify(key === 'PREFIX' ? `${BASE_PATH}/site/${slug}` : route),
+  );
+  const head = html.match(/<head[^>]*>/i);
+  if (head) return html.replace(head[0], () => `${head[0]}\n${script}`);
+  return `${script}\n${html}`;
 }
 
 // Inietta l'overlay Tharvel prima di </body>. Idempotente: se per caso lo script
@@ -575,6 +630,15 @@ app.use('/site/:slug', requireAuth, async (req, res, next) => {
             path.join(serveRoot, reqPath, 'index.html'),
             ...(reqPath === '/' ? [] : [path.join(serveRoot, `${reqPath}.html`)]),
           ];
+      // SPA fallback, equivalente a `try_files $uri $uri/ /index.html` in nginx (è
+      // esattamente la conf con cui questi siti girano in produzione). Una build
+      // Vite ha UN solo index.html e le rotte sono client-side: senza questo,
+      // /site/twobee/casestudy cade su express.static → 404, anche se la rotta
+      // esiste ed è raggiungibile sul dominio del cliente.
+      if (site.framework === 'vite') candidates.push(path.join(serveRoot, 'index.html'));
+
+      // Rotta "di produzione" da far vedere al router del sito (vedi preview-bootstrap).
+      const route = virtualRouteFor(req);
       for (const filePath of candidates) {
         // Path traversal guard: dopo path.join il risultato deve restare dentro serveRoot.
         const resolved = path.resolve(filePath);
@@ -584,7 +648,8 @@ app.use('/site/:slug', requireAuth, async (req, res, next) => {
         }
         try {
           let html = await fs.readFile(resolved, 'utf-8');
-          html = rewriteHtmlForTenant(html, slug);
+          html = rewriteHtmlForTenant(html, slug, route);
+          html = injectPreviewBootstrap(html, slug, route);
           html = injectOverlay(html);
           res.set('Content-Type', 'text/html; charset=utf-8');
           res.set('Cache-Control', 'no-store');
