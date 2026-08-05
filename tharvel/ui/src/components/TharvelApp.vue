@@ -5,6 +5,7 @@ import PreviewPane from './PreviewPane.vue';
 import ChatPanel from './ChatPanel.vue';
 import SettingsModal from './SettingsModal.vue';
 import AddSiteWizard from './AddSiteWizard.vue';
+import AccessKeysModal from './AccessKeysModal.vue';
 import PublishDialog from './PublishDialog.vue';
 import { useTharvelSession } from '../composables/useTharvelSession';
 import { useAuth } from '../composables/useAuth';
@@ -20,6 +21,8 @@ const session = useTharvelSession(activeSlug);
 const revisions = useRevisions(activeSlug, session.historyNonce);
 const settingsOpen = ref(false);
 const wizardOpen = ref(false);
+// Slug di cui stiamo mostrando le chiavi di accesso (null = modale chiusa).
+const accessSlug = ref<string | null>(null);
 const publishDialogOpen = ref(false);
 
 // Layout state: due flag persistiti separatamente. La sidebar rail-mode e la
@@ -108,6 +111,7 @@ const noSlug = computed(() => !activeSlug.value);
       @clear-chat="session.clearChat()"
       @select-site="setAdminActiveSlug($event)"
       @add-site="wizardOpen = true"
+      @site-access="accessSlug = $event"
       @upload-asset="session.uploadFile($event)"
       @logout="logout"
       @reload-preview="session.reloadIframe()"
@@ -167,6 +171,12 @@ const noSlug = computed(() => !activeSlug.value);
       @close="settingsOpen = false"
       @login="onLogin"
       @set-key="onSetKey"
+    />
+
+    <AccessKeysModal
+      v-if="accessSlug"
+      :slug="accessSlug"
+      @close="accessSlug = null"
     />
 
     <AddSiteWizard

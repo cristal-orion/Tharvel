@@ -138,6 +138,11 @@ export function useTharvelSession(slug: Ref<string | null>) {
       case 'files_list':
         projectFiles.value = data.files;
         break;
+      // Modello con cui il server ha davvero aperto la sessione (letto da
+      // sites.model). Allinea il picker, che altrimenti mostrerebbe il default.
+      case 'model_active':
+        if (typeof data.model === 'string') selectedModel.value = data.model;
+        break;
       case 'files_updated':
         send({ type: 'get_files' });
         break;

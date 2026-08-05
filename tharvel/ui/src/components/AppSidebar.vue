@@ -34,6 +34,7 @@ const emit = defineEmits<{
   (e: 'clear-chat'): void;
   (e: 'select-site', slug: string): void;
   (e: 'add-site'): void;
+  (e: 'site-access', slug: string): void;
   (e: 'upload-asset', file: File): void;
   (e: 'logout'): void;
   (e: 'reload-preview'): void;
@@ -180,19 +181,32 @@ const toggle = (path: string, current: string[]) => {
         <div v-if="sitesOpen" class="section-body">
           <div v-if="sitesLoading" class="empty">Caricamento…</div>
           <div v-else-if="adminSites.length === 0" class="empty">Nessun sito ancora — crea il primo con "Aggiungi sito".</div>
-          <button
-            v-for="s in adminSites"
-            :key="s.id"
-            class="project-row"
-            :class="{ active: s.slug === activeSlug }"
-            @click="emit('select-site', s.slug)"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 7 L10 7 L12 5 L21 5 L21 19 L3 19 Z" />
-            </svg>
-            <span class="site-slug">{{ s.slug }}</span>
-            <span class="site-fw">{{ s.framework }}</span>
-          </button>
+          <!-- Wrapper: il bottone "chiavi" deve stare ACCANTO alla riga, non dentro
+               (un <button> annidato in un <button> non è HTML valido e il click
+               risalirebbe a select-site). -->
+          <div v-for="s in adminSites" :key="s.id" class="project-row-wrap">
+            <button
+              class="project-row"
+              :class="{ active: s.slug === activeSlug }"
+              @click="emit('select-site', s.slug)"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 7 L10 7 L12 5 L21 5 L21 19 L3 19 Z" />
+              </svg>
+              <span class="site-slug">{{ s.slug }}</span>
+              <span class="site-fw">{{ s.framework }}</span>
+            </button>
+            <button
+              class="row-action"
+              title="Chiavi di accesso — messaggio con URL, email e password da girare al cliente"
+              @click="emit('site-access', s.slug)"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <circle cx="8" cy="15" r="4" />
+                <path d="M10.85 12.15 L19 4 M18 5 L20 7 M15 8 L17 10" />
+              </svg>
+            </button>
+          </div>
           <button class="project-row add-site" @click="emit('add-site')" title="Onboarding nuovo sito">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
               <path d="M12 5 V19 M5 12 H19" />
@@ -649,6 +663,31 @@ const toggle = (path: string, current: string[]) => {
   transition: background var(--t-fast), color var(--t-fast);
 }
 .project-row:hover { background: var(--bg-hover); color: var(--text); }
+
+/* Il bottone "chiavi" è sovrapposto in fondo alla riga e compare solo a
+   hover/focus, così la lista resta pulita ma è raggiungibile da tastiera. */
+.project-row-wrap { position: relative; }
+.row-action {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-mute);
+  opacity: 0;
+  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.project-row-wrap:hover .row-action,
+.row-action:focus-visible { opacity: 1; }
+.row-action:hover { background: var(--bg-active); color: var(--text); }
+/* Il badge del framework starebbe sotto il bottone: lo nascondiamo a hover. */
+.project-row-wrap:hover .site-fw { visibility: hidden; }
 .project-row.active { background: var(--bg-active); color: var(--text); font-weight: 500; }
 .site-slug { flex: 1; }
 .site-fw {

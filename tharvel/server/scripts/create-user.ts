@@ -19,6 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { getDb } from '../db/index.js';
 import { createUser, getUserByEmail } from '../db/users.js';
 import { getSiteBySlug } from '../db/sites.js';
+import { trySeal } from '../secret-box.js';
 import { hashPassword } from '../auth.js';
 
 function fail(msg: string): never {
@@ -98,6 +99,9 @@ const hash = await hashPassword(plainPassword);
 const user = createUser({
   email,
   password_hash: hash,
+  // Copia cifrata: permette di ristampare le credenziali dal pannello "Chiavi di
+  // accesso" anche per gli utenti creati da CLI. Vedi secret-box.ts.
+  password_enc: trySeal(plainPassword),
   role,
   slug: role === 'client' ? values.slug : null,
 });

@@ -7,6 +7,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import fs from 'fs/promises';
 import { fileURLToPath } from 'node:url';
+import { randomBytes } from 'node:crypto';
 import {
   AuthStorage,
   createAgentSession,
@@ -19,8 +20,9 @@ import {
 import { Type } from '@sinclair/typebox';
 import sharp from 'sharp';
 import { getDb } from './db/index.js';
-import { listSites, getSiteBySlug, getSiteByDomain, type Site } from './db/sites.js';
-import { getUserByEmail } from './db/users.js';
+import { listSites, getSiteBySlug, getSiteByDomain, setSiteModel, type Site } from './db/sites.js';
+import { getUserByEmail, getUserById, listUsersBySlug, updateUserPassword } from './db/users.js';
+import { unseal, trySeal } from './secret-box.js';
 import { publishSite } from './publish.js';
 import { findApplicationByRepo, getApplication, splitFqdns, pickRecommendedFqdn } from './coolify-api.js';
 import { onboardSite, OnboardError } from './onboard-pipeline.js';
@@ -52,6 +54,7 @@ import {
   clearSessionCookie,
   parseSessionCookie,
   publicUser,
+  hashPassword,
 } from './auth.js';
 
 dotenv.config();
@@ -178,6 +181,70 @@ app.get('/api/sites', requireAuth, requireAdmin, (_req, res) => {
     framework: s.framework,
   }));
   res.json({ sites });
+});
+
+// URL del pannello per un sito. Ricostruito invece di salvato perché `sites.domain`
+// tiene il solo host: la regola sul protocollo è la stessa dell'onboarding (i domini
+// reali vanno su https, solo gli sslip.io provvisori restano http — vedi
+// onboard-pipeline.ts). Se cambia là va cambiata anche qui.
+function adminUrlForSite(site: { domain: string | null }): string | null {
+  if (!site.domain) return null;
+  const host = site.domain.replace(/^https?:\/\//i, '').replace(/\/.*$/, '');
+  const protocol = /\.sslip\.io$/i.test(host) ? 'http' : 'https';
+  return `${protocol}://${host}${BASE_PATH}`;
+}
+
+// Chiavi di accesso di un sito: le stesse credenziali che il wizard mostra a fine
+// onboarding, ma recuperabili in qualsiasi momento. Serve quando il cliente
+// ripete "non trovo più la mail con gli accessi".
+//
+// `password: null` significa non recuperabile: l'account è stato creato prima che
+// esistesse password_enc, oppure il segreto di cifratura non è più quello di allora.
+// In quel caso l'unica strada è il reset qui sotto.
+app.get('/api/admin/sites/:slug/access', requireAuth, requireAdmin, (req, res) => {
+  const site = getSiteBySlug(String(req.params.slug));
+  if (!site) {
+    res.status(404).json({ error: 'Sito non trovato.' });
+    return;
+  }
+  res.json({
+    slug: site.slug,
+    domain: site.domain,
+    adminUrl: adminUrlForSite(site),
+    users: listUsersBySlug(site.slug).map((u) => ({
+      id: u.id,
+      email: u.email,
+      role: u.role,
+      password: unseal(u.password_enc),
+      updatedAt: u.updated_at,
+    })),
+  });
+});
+
+// Reset password di un utente cliente. Genera, salva (hash + copia cifrata) e
+// ritorna la nuova password in chiaro: è l'unico modo di rimettere in mano all'admin
+// una credenziale funzionante quando quella vecchia non è recuperabile.
+// Invalida immediatamente la password che il cliente sta usando, quindi la UI chiede
+// conferma prima di chiamarlo.
+app.post('/api/admin/sites/:slug/access/reset-password', requireAuth, requireAdmin, async (req, res) => {
+  const site = getSiteBySlug(String(req.params.slug));
+  if (!site) {
+    res.status(404).json({ error: 'Sito non trovato.' });
+    return;
+  }
+  const userId = Number(req.body?.userId);
+  const user = Number.isFinite(userId) ? getUserById(userId) : null;
+  // Il vincolo sullo slug impedisce di resettare, passando un userId qualsiasi,
+  // la password di un utente che non appartiene a questo sito (incluso un admin).
+  if (!user || user.slug !== site.slug) {
+    res.status(404).json({ error: 'Utente non trovato per questo sito.' });
+    return;
+  }
+  // 18 byte base64url ≈ 24 caratteri stampabili: robusta e copiabile a mano.
+  const password = randomBytes(18).toString('base64url');
+  updateUserPassword(user.id, await hashPassword(password), trySeal(password));
+  console.log(`[ACCESS] password rigenerata per ${user.email} (sito ${site.slug})`);
+  res.json({ id: user.id, email: user.email, password, adminUrl: adminUrlForSite(site) });
 });
 
 // --- Storico modifiche / undo / restore (Strato Undo).
@@ -758,6 +825,46 @@ wss.on('connection', async (ws, req) => {
     const authStorage = AuthStorage.create();
     const modelRegistry = ModelRegistry.create(authStorage);
 
+    // Risoluzione di una chiave "<provider>/<modelId>" in un Model dell'SDK.
+    // Due sorgenti, in ordine: i modelli built-in del registry, poi i custom che
+    // l'admin ha aggiunto a mano (usciti dopo il pin dell'SDK — vedi db/custom-models).
+    // Serve in tre punti (boot della sessione, set_model, default): tenerla in una
+    // funzione evita che la scelta persistita si risolva in modo diverso dalla live.
+    const resolveModel = (key: string | null | undefined) => {
+      if (!key) return null;
+      const [provider, ...rest] = key.split('/');
+      const modelId = rest.join('/');
+      if (!provider || !modelId) return null;
+      const builtin = modelRegistry.find(provider, modelId);
+      if (builtin) return builtin;
+      if (provider === 'openai-codex') {
+        const custom = getCustomModel(provider, modelId);
+        if (custom) {
+          return buildCodexModel(modelRegistry, {
+            modelId: custom.model_id,
+            label: custom.label,
+            contextWindow: custom.context_window,
+            maxTokens: custom.max_tokens,
+          });
+        }
+      }
+      return null;
+    };
+
+    const DEFAULT_MODEL_KEY = 'openai-codex/gpt-5.5';
+    // Il modello scelto è per-sito (sites.model): la sessione dell'agente è per-sito,
+    // e siti diversi possono volere modelli diversi. Se la scelta salvata non è più
+    // risolvibile (modello custom cancellato, SDK aggiornato) si torna al default
+    // invece di rifiutare la connessione.
+    const savedModel = resolveModel(site.model);
+    if (site.model && !savedModel) {
+      console.warn(`[MODELS] '${site.slug}': modello salvato '${site.model}' non risolvibile, uso il default`);
+    }
+    const initialModel = savedModel ?? resolveModel(DEFAULT_MODEL_KEY);
+    // Mutabile: segue i set_model andati a buon fine, così un cambio rifiutato può
+    // rimandare alla UI il modello che sta girando davvero.
+    let activeModelKey = savedModel ? site.model! : DEFAULT_MODEL_KEY;
+
     const sitePath = resolveSiteCwd(site);
 
     // System prompt parametrizzato sul framework del sito.
@@ -1013,7 +1120,7 @@ Regole fondamentali:
     // attiva tutti i default automaticamente.
     const { session } = await createAgentSession({
       sessionManager: SessionManager.inMemory(),
-      model: modelRegistry.find("openai-codex", "gpt-5.5"),
+      model: initialModel,
       authStorage,
       modelRegistry,
       cwd: sitePath,
@@ -1050,6 +1157,9 @@ Regole fondamentali:
 
     // Invio iniziale
     await sendFilesList();
+    // Il picker della UI parte da un default hardcoded: senza questo messaggio
+    // mostrerebbe gpt-5.5 anche quando la sessione sta girando su un altro modello.
+    ws.send(JSON.stringify({ type: 'model_active', model: activeModelKey }));
 
     // Garantisce branch `preview` al primo turn (lazy migration per i siti
     // onboardati prima dell'introduzione del flusso preview). Errori silenziati
@@ -1153,32 +1263,40 @@ Regole fondamentali:
       }
     });
 
-    ws.on('message', async (message) => {
-      const data = JSON.parse(message.toString());
+    // Registrata sotto con un try/catch attorno: un throw non gestito qui
+    // diventerebbe una unhandled rejection, che in Node abbatte il PROCESSO — e con
+    // esso le sessioni di tutti gli altri tenant. Un errore su un messaggio deve
+    // restare confinato alla connessione che l'ha causato.
+    const handleClientMessage = async (message: unknown) => {
+      const data = JSON.parse(String(message));
       
       if (data.type === 'set_model') {
-        const [provider, modelId] = data.model.split('/');
-        // 1) Modelli built-in noti all'SDK.
-        let newModel = modelRegistry.find(provider, modelId);
-        // 2) Fallback: modelli custom aggiunti dall'admin (non presenti nel
-        //    registry). Costruiamo l'oggetto Model al volo clonando il template.
-        if (!newModel && provider === 'openai-codex') {
-          const custom = getCustomModel(provider, modelId);
-          if (custom) {
-            newModel = buildCodexModel(modelRegistry, {
-              modelId: custom.model_id,
-              label: custom.label,
-              contextWindow: custom.context_window,
-              maxTokens: custom.max_tokens,
-            });
-          }
-        }
-        if (newModel) {
-          await session.setModel(newModel);
-          ws.send(JSON.stringify({ type: 'system', content: `✅ Modello cambiato in: ${newModel.name}` }));
-        } else {
+        // resolveModel copre sia i built-in dell'SDK sia i custom aggiunti dall'admin.
+        const newModel = resolveModel(data.model);
+        if (!newModel) {
           ws.send(JSON.stringify({ type: 'error', message: `Modello non trovato: ${data.model}` }));
+          return;
         }
+        try {
+          // setModel valida le credenziali del provider e lancia se mancano
+          // ("No API key for <provider>/<id>"): va intercettato, altrimenti un
+          // modello scelto senza login butta giù il server per tutti.
+          await session.setModel(newModel);
+        } catch (e: any) {
+          ws.send(JSON.stringify({
+            type: 'error',
+            message: `Impossibile passare a ${newModel.name}: ${e?.message ?? e}`,
+          }));
+          // Rimanda il modello che è ancora attivo, così il picker non resta a
+          // mostrare una scelta che il server ha rifiutato.
+          ws.send(JSON.stringify({ type: 'model_active', model: activeModelKey }));
+          return;
+        }
+        // Persistiamo solo dopo che la session l'ha accettato: salvare un modello
+        // che non parte lascerebbe il sito inutilizzabile alla riconnessione.
+        setSiteModel(site.slug, data.model);
+        activeModelKey = data.model;
+        ws.send(JSON.stringify({ type: 'system', content: `✅ Modello cambiato in: ${newModel.name}` }));
         return;
       }
 
@@ -1293,6 +1411,18 @@ Regole fondamentali:
         } catch (error: any) {
           ws.send(JSON.stringify({ type: 'error', message: error.message || 'Errore sconosciuto' }));
         }
+      }
+    };
+
+    ws.on('message', async (message) => {
+      try {
+        await handleClientMessage(message);
+      } catch (e: any) {
+        console.error(`[WS] '${site.slug}': errore non gestito su un messaggio client:`, e);
+        ws.send(JSON.stringify({ type: 'error', message: e?.message ?? 'Errore interno del server.' }));
+        // `done` sblocca la UI: senza questo la chat resta a "sto lavorando…" per
+        // sempre se l'errore è arrivato durante un turno.
+        ws.send(JSON.stringify({ type: 'done' }));
       }
     });
 

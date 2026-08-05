@@ -10,6 +10,7 @@ import path from 'node:path';
 import { createSite, getSiteBySlug, type SiteFramework } from './db/sites.js';
 import { createUser, getUserByEmail, type UserRole } from './db/users.js';
 import { hashPassword } from './auth.js';
+import { trySeal } from './secret-box.js';
 import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
 import { addDomainToTharvel, restartTharvel } from './coolify-api.js';
 import { ensurePiSettings } from './pi-settings.js';
@@ -180,10 +181,14 @@ export async function onboardSite(input: OnboardInput): Promise<OnboardOutput> {
     });
 
     // 6. INSERT user client
+    // password_enc: copia cifrata della password, così il messaggio di handover si
+    // può ristampare anche mesi dopo (endpoint /api/admin/sites/:slug/access).
+    // L'hash Argon2id resta l'unica cosa che il login guarda.
     const passwordHash = await hashPassword(input.clientPassword);
     const user = createUser({
       email: input.clientEmail.toLowerCase(),
       password_hash: passwordHash,
+      password_enc: trySeal(input.clientPassword),
       role: 'client' as UserRole,
       slug: input.slug,
     });

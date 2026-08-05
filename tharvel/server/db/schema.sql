@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS sites (
   domain TEXT UNIQUE,
   cwd_path TEXT NOT NULL,
   framework TEXT NOT NULL DEFAULT 'html',
+  -- Modello AI scelto per questo sito ("<provider>/<modelId>"). NULL = default.
+  model TEXT,
   repo_url TEXT,
   preview_url TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -20,6 +22,9 @@ CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   email TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  -- Password cifrata (secret-box.ts) per poter ristampare il messaggio di
+  -- handover al cliente. NULL = non recuperabile, si può solo rigenerare.
+  password_enc TEXT,
   role TEXT NOT NULL CHECK(role IN ('admin','client')),
   slug TEXT,
   totp_secret TEXT,

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { apiUrl } from '../site';
+import { buildHandoverMessage } from '../handover';
 
 // Wizard 3 step:
 //   1. lookup → admin incolla URL repo, Tharvel cerca app Coolify
@@ -148,19 +149,15 @@ async function doOnboard() {
   }
 }
 
+// Stesso testo che il pannello "Chiavi di accesso" ristampa a distanza di mesi:
+// vedi ui/src/handover.ts.
 const messageForClient = computed(() => {
   if (!result.value) return '';
-  return `Ciao,
-
-Il tuo pannello Tharvel è pronto:
-
-URL:      ${result.value.adminUrl}
-Email:    ${clientEmail.value}
-Password: ${clientPassword.value}
-
-Da lì puoi chiedere le modifiche al sito via chat e pubblicarle quando sei pronto.
-
-Buon lavoro!`;
+  return buildHandoverMessage({
+    adminUrl: result.value.adminUrl,
+    email: clientEmail.value,
+    password: clientPassword.value,
+  });
 });
 
 const adminUrlPreview = computed(() => {

@@ -25,12 +25,20 @@ export function getDb(): Database.Database {
   // Migration idempotente: aggiunge colonne nuove ai DB esistenti.
   // CREATE TABLE IF NOT EXISTS non modifica le tabelle già presenti, quindi
   // controlliamo le colonne via pragma e aggiungiamo solo quelle mancanti.
-  const cols = db.prepare("PRAGMA table_info(sites)").all() as Array<{ name: string }>;
-  const hasFramework = cols.some(c => c.name === 'framework');
-  if (!hasFramework) {
-    db.exec("ALTER TABLE sites ADD COLUMN framework TEXT NOT NULL DEFAULT 'html'");
-    console.log("[DB] migration: aggiunta colonna sites.framework");
-  }
+  // Ogni colonna aggiunta qui va aggiunta ANCHE a schema.sql, per i DB nuovi.
+  const addColumnIfMissing = (table: string, column: string, ddl: string) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+    if (cols.some((c) => c.name === column)) return;
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    console.log(`[DB] migration: aggiunta colonna ${table}.${column}`);
+  };
+
+  addColumnIfMissing('sites', 'framework', "framework TEXT NOT NULL DEFAULT 'html'");
+  // Modello AI scelto per questo sito, come "<provider>/<modelId>". NULL = default.
+  addColumnIfMissing('sites', 'model', 'model TEXT');
+  // Password del pannello cifrata (vedi secret-box.ts): serve a ristampare il
+  // messaggio di handover per il cliente. NULL = non recuperabile.
+  addColumnIfMissing('users', 'password_enc', 'password_enc TEXT');
 
   dbInstance = db;
   console.log(`[DB] tharvel.db ready at ${dbPath}`);
