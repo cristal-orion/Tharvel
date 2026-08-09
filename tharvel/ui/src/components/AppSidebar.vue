@@ -197,25 +197,30 @@ const toggle = (path: string, current: string[]) => {
               <span class="site-slug">{{ s.slug }}</span>
               <span class="site-fw">{{ s.framework }}</span>
             </button>
-            <button
-              class="row-action"
-              title="Attività — cosa ha chiesto il cliente, comandi eseguiti, ripristino a una pubblicazione precedente"
-              @click="emit('site-activity', s.slug)"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <path d="M3 12 H7 L10 5 L14 19 L17 12 H21" />
-              </svg>
-            </button>
-            <button
-              class="row-action"
-              title="Chiavi di accesso — messaggio con URL, email e password da girare al cliente"
-              @click="emit('site-access', s.slug)"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                <circle cx="8" cy="15" r="4" />
-                <path d="M10.85 12.15 L19 4 M18 5 L20 7 M15 8 L17 10" />
-              </svg>
-            </button>
+            <!-- I bottoni azione vanno in un contenitore posizionato: da soli erano
+                 entrambi `position: absolute; right: 4px`, quindi si sovrapponevano
+                 e si vedeva solo l'ultimo. -->
+            <div class="row-actions">
+              <button
+                class="row-action"
+                title="Attività — cosa ha chiesto il cliente, comandi eseguiti, ripristino a una pubblicazione precedente"
+                @click="emit('site-activity', s.slug)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M3 12 H7 L10 5 L14 19 L17 12 H21" />
+                </svg>
+              </button>
+              <button
+                class="row-action"
+                title="Chiavi di accesso — messaggio con URL, email e password da girare al cliente"
+                @click="emit('site-access', s.slug)"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <circle cx="8" cy="15" r="4" />
+                  <path d="M10.85 12.15 L19 4 M18 5 L20 7 M15 8 L17 10" />
+                </svg>
+              </button>
+            </div>
           </div>
           <button class="project-row add-site" @click="emit('add-site')" title="Onboarding nuovo sito">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
@@ -677,11 +682,17 @@ const toggle = (path: string, current: string[]) => {
 /* Il bottone "chiavi" è sovrapposto in fondo alla riga e compare solo a
    hover/focus, così la lista resta pulita ma è raggiungibile da tastiera. */
 .project-row-wrap { position: relative; }
-.row-action {
+/* Il contenitore è l'unico elemento posizionato: i bottoni dentro stanno in fila. */
+.row-actions {
   position: absolute;
   right: 4px;
   top: 50%;
   transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.row-action {
   display: grid;
   place-items: center;
   width: 24px;
