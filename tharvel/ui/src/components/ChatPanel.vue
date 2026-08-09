@@ -5,6 +5,7 @@ import ProviderPicker from './ProviderPicker.vue';
 import ChatWelcome from './ChatWelcome.vue';
 import EmptyState from './EmptyState.vue';
 import { useResizable } from '../composables/useResizable';
+import { useAuth } from '../composables/useAuth';
 
 const props = defineProps<{
   messages: ChatMessage[];
@@ -24,6 +25,13 @@ const emit = defineEmits<{
   (e: 'clear-chat'): void;
   (e: 'reconnect'): void;
 }>();
+
+// La scelta del modello AI è riservata all'admin (vedi GET /api/models e
+// set_model lato server). Al cliente il picker va nascosto, non disabilitato:
+// un controllo visibile che risponde "non puoi" è solo una richiesta di supporto
+// in più. Il server rifiuta comunque, questa è la parte cosmetica.
+const { user } = useAuth();
+const isAdmin = computed(() => user.value?.role === 'admin');
 
 // "Vuoto" = nessun messaggio user/ai. I system message (saluto iniziale,
 // tool_start, ecc.) non contano per questa logica: vogliamo mostrare il
@@ -289,6 +297,7 @@ const formatMessage = (text: string) => {
         </button>
 
         <ProviderPicker
+          v-if="isAdmin"
           :selected="selectedModel"
           :auth="auth"
           @update:selected="emit('update:selectedModel', $event)"

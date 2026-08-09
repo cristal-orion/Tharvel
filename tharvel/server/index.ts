@@ -37,6 +37,14 @@ import {
   deleteTurnsFromId,
 } from './db/revisions.js';
 import { resetPreviewTo, rebuildSite } from './revisions-ops.js';
+import { rollbackToPublish } from './rollback.js';
+import {
+  insertChatMessage,
+  insertCommandLog,
+  listChatMessages,
+  listCommandLogs,
+  summarizeCommands,
+} from './db/activity.js';
 import {
   listCustomModels,
   getCustomModel,
@@ -247,6 +255,117 @@ app.post('/api/admin/sites/:slug/access/reset-password', requireAuth, requireAdm
   res.json({ id: user.id, email: user.email, password, adminUrl: adminUrlForSite(site) });
 });
 
+// --- Pannello attività (admin).
+//
+// Risponde alla domanda "cosa ha chiesto il cliente a Tharvel e cosa è successo".
+// Tre sorgenti unite in una timeline:
+//  - site_chat_messages : conversazione completa, inclusi i turni che NON hanno
+//                         prodotto un commit (domande, errori) e le risposte.
+//  - site_commands      : comandi bash eseguiti dall'agente (modalità osservazione).
+//  - site_revisions     : i turni che hanno cambiato file, con i file toccati.
+// Admin-only di proposito: al cliente la sua chat è già visibile nel pannello.
+app.get('/api/admin/sites/:slug/activity', requireAuth, requireAdmin, (req, res) => {
+  const site = getSiteBySlug(String(req.params.slug));
+  if (!site) {
+    res.status(404).json({ error: 'Sito non trovato.' });
+    return;
+  }
+  const limit = Math.min(Number(req.query.limit) || 200, 500);
+
+  const events = [
+    ...listChatMessages(site.id, limit).map((m) => ({
+      kind: m.role === 'user' ? ('prompt' as const) : ('reply' as const),
+      at: m.created_at,
+      turnId: m.turn_id,
+      content: m.content,
+      hadError: m.had_error === 1,
+      userId: m.user_id,
+    })),
+    ...listCommandLogs(site.id, limit).map((c) => ({
+      kind: 'command' as const,
+      at: c.created_at,
+      turnId: c.turn_id,
+      content: c.command,
+      hadError: c.is_error === 1,
+      userId: null,
+    })),
+    ...listRevisionsBySite(site.id, limit).map((r) => ({
+      kind: 'revision' as const,
+      at: r.created_at,
+      turnId: null,
+      content: r.summary ?? r.user_prompt,
+      hadError: false,
+      userId: null,
+      filesChanged: JSON.parse(r.files_changed || '[]') as string[],
+      commitSha: r.commit_sha,
+      revisionKind: r.kind,
+    })),
+  ]
+    // Ordine cronologico inverso: l'ultima cosa successa in cima.
+    .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0));
+
+  res.json({ slug: site.slug, events });
+});
+
+// Elenco delle pubblicazioni di un sito, cioè i punti a cui si può riportare
+// ciò che è ONLINE. Distinto da /history (che elenca i turni su preview).
+app.get('/api/admin/sites/:slug/publishes', requireAuth, requireAdmin, (req, res) => {
+  const site = getSiteBySlug(String(req.params.slug));
+  if (!site) {
+    res.status(404).json({ error: 'Sito non trovato.' });
+    return;
+  }
+  const publishes = listRevisionsBySite(site.id, 200)
+    .filter((r) => r.kind === 'publish')
+    .map((r) => ({
+      id: r.id,
+      commitSha: r.commit_sha,
+      shortSha: r.commit_sha.slice(0, 8),
+      summary: r.summary,
+      at: r.created_at,
+    }));
+  res.json({ slug: site.slug, publishes });
+});
+
+// Riporta il sito online a una pubblicazione precedente. Admin-only: tocca `main`
+// del repo del cliente e fa ripartire il deploy.
+app.post('/api/admin/sites/:slug/rollback/:revisionId', requireAuth, requireAdmin, async (req, res) => {
+  const site = getSiteBySlug(String(req.params.slug));
+  if (!site) {
+    res.status(404).json({ error: 'Sito non trovato.' });
+    return;
+  }
+  const revId = Number(req.params.revisionId);
+  const rev = Number.isFinite(revId) ? getRevisionById(revId, site.id) : null;
+  // Il vincolo su kind evita di passare l'id di un turno preview, il cui commit
+  // non esiste più su main dopo lo squash.
+  if (!rev || rev.kind !== 'publish') {
+    res.status(404).json({ error: 'Pubblicazione non trovata per questo sito.' });
+    return;
+  }
+  try {
+    const result = await rollbackToPublish(site, SITES_ROOT, rev.commit_sha, rev.summary ?? '');
+    console.log(`[ROLLBACK] '${site.slug}' → ${rev.commit_sha.slice(0, 8)}: ${result.message}`);
+    res.status(result.ok ? 200 : 500).json(result);
+  } catch (e: any) {
+    console.error(`[ROLLBACK] '${site.slug}' errore:`, e);
+    res.status(500).json({ ok: false, pushed: false, message: e?.message ?? 'Errore interno.' });
+  }
+});
+
+// Riepilogo dei comandi osservati, aggregati per "<binario> <sottocomando>".
+// È la lista da leggere PRIMA di attivare qualunque blocco sul tool bash: la
+// whitelist va costruita da qui, non a memoria. Senza `?slug=` aggrega tutti i siti.
+app.get('/api/admin/commands-summary', requireAuth, requireAdmin, (req, res) => {
+  const slug = req.query.slug ? String(req.query.slug) : null;
+  const site = slug ? getSiteBySlug(slug) : null;
+  if (slug && !site) {
+    res.status(404).json({ error: 'Sito non trovato.' });
+    return;
+  }
+  res.json({ slug, commands: summarizeCommands(site?.id) });
+});
+
 // --- Storico modifiche / undo / restore (Strato Undo).
 // Auth: admin OR client.slug === :slug (stesso pattern dell'iframe /site/:slug).
 function canAccessSlug(reqUser: { role: string; slug?: string | null }, slug: string): boolean {
@@ -323,12 +442,13 @@ app.post('/api/session/:slug/undo', requireAuth, async (req, res) => {
 
 // Ripristina lo stato precedente alla revisione X: reset --hard a parent_sha
 // di quella revisione, cancella dal DB tutte le revisioni 'turn' con id >= X.
-app.post('/api/session/:slug/restore/:revisionId', requireAuth, async (req, res) => {
+//
+// Admin-only (a differenza di /undo, che resta al cliente): saltare a un punto
+// arbitrario della storia può buttare via settimane di lavoro in un click, e chi
+// lo fa non ha modo di vedere cosa sta perdendo. L'"ops, non intendevo questo"
+// del cliente è coperto da /undo sull'ultimo turno.
+app.post('/api/session/:slug/restore/:revisionId', requireAuth, requireAdmin, async (req, res) => {
   const slug = req.params.slug;
-  if (!canAccessSlug(req.user!, slug)) {
-    res.status(403).json({ error: 'forbidden' });
-    return;
-  }
   const site = getSiteBySlug(slug);
   if (!site) {
     res.status(404).json({ error: 'site not found' });
@@ -465,9 +585,10 @@ function serializeCustomModel(m: CustomModel) {
   };
 }
 
-// Lista modelli custom (per il picker/settings). Auth: qualsiasi utente loggato
-// (serve al client per popolare il picker); scrittura invece solo admin.
-app.get('/api/models', requireAuth, (_req, res) => {
+// Lista modelli custom (per il picker/settings). Admin-only: la scelta del modello
+// decide costo e qualità delle risposte, e il cliente non ha gli elementi per farla.
+// Il picker è nascosto lato UI per i client; questo endpoint è la difesa server-side.
+app.get('/api/models', requireAuth, requireAdmin, (_req, res) => {
   res.json({ models: listCustomModels().map(serializeCustomModel) });
 });
 
@@ -1187,6 +1308,23 @@ Regole fondamentali:
     let currentTurnPrompt = '';
     let currentTurnHadError = false;
 
+    // Stato per il log attività (db/activity.ts). Separato da quello dell'auto-commit
+    // perché va persistito SEMPRE, anche quando il turno non produce un commit:
+    // è l'unico posto in cui resta traccia delle domande, dei turni falliti e delle
+    // risposte dell'agente. `currentTurnId` lega prompt, risposta e comandi.
+    let currentTurnId = '';
+    let currentTurnReply = '';
+
+    const logActivity = (fn: () => void, label: string) => {
+      // Il log non deve mai far fallire un turno: se il DB dà errore lo segnaliamo
+      // in console e si prosegue.
+      try {
+        fn();
+      } catch (e) {
+        console.error(`[ACTIVITY] '${site.slug}' ${label} fallito:`, e);
+      }
+    };
+
     // File caricati via upload_file (asset "+") ma non ancora menzionati all'agente.
     // Vengono salvati su disco subito, ma l'agente non ne sa nulla (nessun turno
     // automatico, per non sprecarne uno). Accumuliamo i path qui e li anteponiamo
@@ -1213,6 +1351,9 @@ Regole fondamentali:
       if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
         // Aggiunto log e flush esplicito per capire se la websocket sta davvero mandando
         console.log("[WS SEND] text_delta:", event.assistantMessageEvent.delta);
+        // Accumuliamo la risposta per salvarla intera a fine turn: i delta sono
+        // troppo granulari per una riga di DB ciascuno.
+        currentTurnReply += event.assistantMessageEvent.delta;
         ws.send(JSON.stringify({
           type: 'stream',
           content: event.assistantMessageEvent.delta
@@ -1226,6 +1367,28 @@ Regole fondamentali:
         // (caso già gestito) o dirty (e committerà lui). Race accettata.
         const promptForCommit = currentTurnPrompt;
         const hadError = currentTurnHadError;
+
+        // Persistiamo la risposta dell'agente PRIMA di resettare lo stato del turn.
+        // Nota: avviene anche quando promptForCommit è vuoto (turno senza modifiche),
+        // che è esattamente il caso che site_revisions non vede.
+        const replyToLog = currentTurnReply.trim();
+        const turnIdForLog = currentTurnId;
+        if (replyToLog && turnIdForLog) {
+          logActivity(
+            () =>
+              insertChatMessage({
+                site_id: site.id,
+                turn_id: turnIdForLog,
+                role: 'assistant',
+                content: replyToLog,
+                had_error: hadError,
+              }),
+            'insert assistant message',
+          );
+        }
+        currentTurnReply = '';
+        currentTurnId = '';
+
         currentTurnPrompt = '';
         currentTurnHadError = false;
 
@@ -1251,6 +1414,31 @@ Regole fondamentali:
       }
 
       if (event.type === 'tool_execution_start') {
+         // MODALITÀ OSSERVAZIONE (progetto-tharvel-security.md, vettore B):
+         // registriamo il comando ma NON lo blocchiamo. Serve a ricavare dall'uso
+         // reale la whitelist da mantenere quando il tool bash verrà sostituito
+         // con un terminale virtuale. Non attivare nessun blocco prima di aver
+         // letto GET /api/admin/commands-summary su dati di uso vero.
+         if (event.toolName === 'bash') {
+           const args: any = (event as any).args;
+           const cmd =
+             typeof args?.command === 'string'
+               ? args.command
+               : typeof args?.cmd === 'string'
+                 ? args.cmd
+                 : JSON.stringify(args ?? {});
+           console.log(`[OSSERVAZIONE] '${site.slug}' bash: ${cmd}`);
+           logActivity(
+             () =>
+               insertCommandLog({
+                 site_id: site.id,
+                 turn_id: currentTurnId || null,
+                 tool: event.toolName,
+                 command: cmd,
+               }),
+             'insert command log',
+           );
+         }
          ws.send(JSON.stringify({
            type: 'tool_start',
            tool: event.toolName
@@ -1271,6 +1459,14 @@ Regole fondamentali:
       const data = JSON.parse(String(message));
       
       if (data.type === 'set_model') {
+        // Admin-only, come GET /api/models: la scelta del modello decide costo e
+        // qualità. Il picker è nascosto lato UI ai client, ma la WS è raggiungibile
+        // a mano, quindi il controllo deve stare anche qui.
+        if (user.role !== 'admin') {
+          console.warn(`[WS] '${site.slug}': set_model rifiutato per ${user.email} (role=${user.role})`);
+          ws.send(JSON.stringify({ type: 'error', message: 'Solo l\'amministratore può cambiare il modello AI.' }));
+          return;
+        }
         // resolveModel copre sia i built-in dell'SDK sia i custom aggiunti dall'admin.
         const newModel = resolveModel(data.model);
         if (!newModel) {
@@ -1357,6 +1553,13 @@ Regole fondamentali:
 
         // Gestione comandi slash manuale
         if (text.startsWith('/model ')) {
+          // Stessa restrizione di set_model: senza questo il cliente cambierebbe
+          // modello scrivendolo in chat, aggirando il picker nascosto.
+          if (user.role !== 'admin') {
+            ws.send(JSON.stringify({ type: 'error', message: 'Solo l\'amministratore può cambiare il modello AI.' }));
+            ws.send(JSON.stringify({ type: 'done' }));
+            return;
+          }
           const newModelId = text.split(' ')[1];
           const newModel = modelRegistry.find("github-copilot", newModelId) || modelRegistry.find("anthropic", newModelId);
           if (newModel) {
@@ -1393,6 +1596,22 @@ Regole fondamentali:
         // Cattura il prompt utente per l'auto-commit a fine turn (solo il testo reale).
         currentTurnPrompt = text;
         currentTurnHadError = false;
+
+        // Log attività: il prompt va salvato SUBITO e sempre, anche se il turno
+        // poi fallisce o non tocca file. Il turn_id lega prompt, risposta e comandi.
+        currentTurnId = randomBytes(8).toString('hex');
+        currentTurnReply = '';
+        logActivity(
+          () =>
+            insertChatMessage({
+              site_id: site.id,
+              user_id: user.id,
+              turn_id: currentTurnId,
+              role: 'user',
+              content: text,
+            }),
+          'insert user message',
+        );
 
         // Se ci sono file appena caricati via "+" di cui l'agente non sa nulla,
         // anteponiamo i loro path al prompt così sa dove guardare quando li menziona.

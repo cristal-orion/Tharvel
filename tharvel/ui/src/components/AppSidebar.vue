@@ -35,6 +35,7 @@ const emit = defineEmits<{
   (e: 'select-site', slug: string): void;
   (e: 'add-site'): void;
   (e: 'site-access', slug: string): void;
+  (e: 'site-activity', slug: string): void;
   (e: 'upload-asset', file: File): void;
   (e: 'logout'): void;
   (e: 'reload-preview'): void;
@@ -195,6 +196,15 @@ const toggle = (path: string, current: string[]) => {
               </svg>
               <span class="site-slug">{{ s.slug }}</span>
               <span class="site-fw">{{ s.framework }}</span>
+            </button>
+            <button
+              class="row-action"
+              title="Attività — cosa ha chiesto il cliente, comandi eseguiti, ripristino a una pubblicazione precedente"
+              @click="emit('site-activity', s.slug)"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M3 12 H7 L10 5 L14 19 L17 12 H21" />
+              </svg>
             </button>
             <button
               class="row-action"

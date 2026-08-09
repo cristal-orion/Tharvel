@@ -76,3 +76,44 @@ CREATE TABLE IF NOT EXISTS custom_models (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   UNIQUE(provider, model_id)
 );
+
+-- Transcript completo della chat, per sito. Distinto da site_revisions: quella
+-- nasce SOLO per i turni che producono un commit, quindi non vede le domande
+-- ("come faccio a..."), i turni falliti, né le risposte dell'agente. Questa
+-- tabella registra tutto, ed è la fonte per il pannello attività dell'admin
+-- ("cosa ha chiesto il cliente"). La session dell'SDK è inMemory: senza questo
+-- il transcript si perde alla disconnessione.
+-- turn_id raggruppa il prompt e la risposta dello stesso turno.
+-- user_id: chi ha scritto (NULL per i messaggi dell'agente e per i turni in cui
+-- l'utente non è risolvibile).
+CREATE TABLE IF NOT EXISTS site_chat_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id INTEGER NOT NULL,
+  user_id INTEGER,
+  turn_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK(role IN ('user','assistant')),
+  content TEXT NOT NULL,
+  had_error INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_site ON site_chat_messages(site_id, id DESC);
+
+-- Modalità osservazione (vedi progetto-tharvel-security.md, vettore B).
+-- Registra ogni comando che l'agente esegue col tool bash SENZA bloccarlo:
+-- serve a ricavare dall'uso reale la whitelist dei comandi da mantenere quando
+-- il terminale verrà sostituito con quello virtuale. Finché questa tabella non
+-- ha abbastanza dati, il blocco NON va attivato.
+CREATE TABLE IF NOT EXISTS site_commands (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id INTEGER NOT NULL,
+  turn_id TEXT,
+  tool TEXT NOT NULL,
+  command TEXT NOT NULL,
+  is_error INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (site_id) REFERENCES sites(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_commands_site ON site_commands(site_id, id DESC);
