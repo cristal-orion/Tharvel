@@ -974,7 +974,13 @@ wss.on('connection', async (ws, req) => {
       return null;
     };
 
-    const DEFAULT_MODEL_KEY = 'openai-codex/gpt-5.5';
+    // Default per i siti senza scelta salvata: è quello che gira sui pannelli
+    // cliente, che non hanno il picker del modello (solo l'admin può cambiarlo).
+    // gpt-5.6-sol esiste solo come modello custom (db/custom-models): se quella
+    // riga non c'è (DB nuovo, modello rimosso a mano) si ricade sull'ultimo
+    // built-in noto all'SDK, invece di partire senza modello.
+    const DEFAULT_MODEL_KEY = 'openai-codex/gpt-5.6-sol';
+    const FALLBACK_MODEL_KEY = 'openai-codex/gpt-5.5';
     // Il modello scelto è per-sito (sites.model): la sessione dell'agente è per-sito,
     // e siti diversi possono volere modelli diversi. Se la scelta salvata non è più
     // risolvibile (modello custom cancellato, SDK aggiornato) si torna al default
@@ -983,10 +989,18 @@ wss.on('connection', async (ws, req) => {
     if (site.model && !savedModel) {
       console.warn(`[MODELS] '${site.slug}': modello salvato '${site.model}' non risolvibile, uso il default`);
     }
-    const initialModel = savedModel ?? resolveModel(DEFAULT_MODEL_KEY);
+    const defaultModel = resolveModel(DEFAULT_MODEL_KEY);
+    if (!savedModel && !defaultModel) {
+      console.warn(`[MODELS] default '${DEFAULT_MODEL_KEY}' non risolvibile, uso il fallback '${FALLBACK_MODEL_KEY}'`);
+    }
+    const initialModel = savedModel ?? defaultModel ?? resolveModel(FALLBACK_MODEL_KEY);
     // Mutabile: segue i set_model andati a buon fine, così un cambio rifiutato può
     // rimandare alla UI il modello che sta girando davvero.
-    let activeModelKey = savedModel ? site.model! : DEFAULT_MODEL_KEY;
+    let activeModelKey = savedModel
+      ? site.model!
+      : defaultModel
+      ? DEFAULT_MODEL_KEY
+      : FALLBACK_MODEL_KEY;
 
     const sitePath = resolveSiteCwd(site);
 
@@ -1208,7 +1222,7 @@ wss.on('connection', async (ws, req) => {
     // Invio iniziale
     await sendFilesList();
     // Il picker della UI parte da un default hardcoded: senza questo messaggio
-    // mostrerebbe gpt-5.5 anche quando la sessione sta girando su un altro modello.
+    // mostrerebbe quel default anche quando la sessione sta girando su un altro modello.
     ws.send(JSON.stringify({ type: 'model_active', model: activeModelKey }));
 
     // Garantisce branch `preview` al primo turn (lazy migration per i siti

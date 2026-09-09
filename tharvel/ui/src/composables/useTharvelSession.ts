@@ -40,7 +40,7 @@ export function useTharvelSession(slug: Ref<string | null>) {
   const projectFiles = ref<ProjectFile[]>([]);
   const selectedFiles = ref<string[]>([]);
   const selectedElement = ref<SelectedElement | null>(null);
-  const selectedModel = ref('openai-codex/gpt-5.5');
+  const selectedModel = ref('openai-codex/gpt-5.6-sol');
   // Immagini allegate al prossimo prompt: vivono solo lato client finché l'utente
   // non clicca "invia" — non vengono salvate come asset del sito, ma passate inline
   // all'LLM come ImageContent. Caso d'uso tipico: screenshot di riferimento.
