@@ -20,7 +20,9 @@ import {
 import { Type } from '@sinclair/typebox';
 import sharp from 'sharp';
 import { getDb } from './db/index.js';
-import { listSites, getSiteBySlug, getSiteByDomain, setSiteModel, type Site } from './db/sites.js';
+import { listSites, getSiteBySlug, getSiteByDomain, type Site } from './db/sites.js';
+import { getDefaultModelKey, setDefaultModelKey } from './db/model-settings.js';
+import { createModelSelection, getSessionModel, resolveModel } from './model-selection.js';
 import { getUserByEmail, getUserById, listUsersBySlug, updateUserPassword } from './db/users.js';
 import { unseal, trySeal } from './secret-box.js';
 import { publishSite } from './publish.js';
@@ -49,7 +51,6 @@ import {
 } from './db/activity.js';
 import {
   listCustomModels,
-  getCustomModel,
   upsertCustomModel,
   deleteCustomModel,
   type CustomModel,
@@ -591,7 +592,24 @@ function serializeCustomModel(m: CustomModel) {
 // decide costo e qualità delle risposte, e il cliente non ha gli elementi per farla.
 // Il picker è nascosto lato UI per i client; questo endpoint è la difesa server-side.
 app.get('/api/models', requireAuth, requireAdmin, (_req, res) => {
-  res.json({ models: listCustomModels().map(serializeCustomModel) });
+  res.json({ models: listCustomModels().map(serializeCustomModel), defaultModel: getDefaultModelKey() });
+});
+
+// Recovery independent of the agent session: an unavailable saved model must
+// remain replaceable by the admin without silently booting clients on another.
+app.put('/api/admin/models/default', requireAuth, requireAdmin, (req, res) => {
+  try {
+    const registry = ModelRegistry.create(AuthStorage.create());
+    const choice = resolveModel(registry, req.body?.model);
+    if (!choice) { res.status(400).json({ error: 'Modello non trovato.' }); return; }
+    if (!registry.hasConfiguredAuth(choice.model)) {
+      res.status(400).json({ error: `Provider ${choice.model.provider} non autenticato.` }); return;
+    }
+    setDefaultModelKey(choice.key);
+    res.json({ model: choice.key });
+  } catch (error: any) {
+    res.status(500).json({ error: `Modello non salvato: ${error?.message ?? error}` });
+  }
 });
 
 // Parsing + validazione comune del body per test/add.
@@ -685,6 +703,10 @@ app.post('/api/admin/models/custom', requireAuth, requireAdmin, (req, res) => {
 app.delete('/api/admin/models/custom/:provider/:modelId', requireAuth, requireAdmin, (req, res) => {
   const provider = String(req.params.provider);
   const modelId = String(req.params.modelId);
+  if (getDefaultModelKey() === `${provider}/${modelId}`) {
+    res.status(409).json({ error: 'Questo è il modello predefinito di Tharvel. Scegli prima un altro modello dalla chat.' });
+    return;
+  }
   const removed = deleteCustomModel(provider, modelId);
   if (!removed) {
     res.status(404).json({ error: 'Modello custom non trovato.' });
@@ -955,59 +977,7 @@ wss.on('connection', async (ws, req) => {
     const authStorage = AuthStorage.create();
     const modelRegistry = ModelRegistry.create(authStorage);
 
-    // Risoluzione di una chiave "<provider>/<modelId>" in un Model dell'SDK.
-    // Due sorgenti, in ordine: i modelli built-in del registry, poi i custom che
-    // l'admin ha aggiunto a mano (usciti dopo il pin dell'SDK — vedi db/custom-models).
-    // Serve in tre punti (boot della sessione, set_model, default): tenerla in una
-    // funzione evita che la scelta persistita si risolva in modo diverso dalla live.
-    const resolveModel = (key: string | null | undefined) => {
-      if (!key) return null;
-      const [provider, ...rest] = key.split('/');
-      const modelId = rest.join('/');
-      if (!provider || !modelId) return null;
-      const builtin = modelRegistry.find(provider, modelId);
-      if (builtin) return builtin;
-      if (provider === 'openai-codex') {
-        const custom = getCustomModel(provider, modelId);
-        if (custom) {
-          return buildCodexModel(modelRegistry, {
-            modelId: custom.model_id,
-            label: custom.label,
-            contextWindow: custom.context_window,
-            maxTokens: custom.max_tokens,
-          });
-        }
-      }
-      return null;
-    };
-
-    // Default per i siti senza scelta salvata: è quello che gira sui pannelli
-    // cliente, che non hanno il picker del modello (solo l'admin può cambiarlo).
-    // gpt-5.6-sol esiste solo come modello custom (db/custom-models): se quella
-    // riga non c'è (DB nuovo, modello rimosso a mano) si ricade sull'ultimo
-    // built-in noto all'SDK, invece di partire senza modello.
-    const DEFAULT_MODEL_KEY = 'openai-codex/gpt-5.6-sol';
-    const FALLBACK_MODEL_KEY = 'openai-codex/gpt-5.5';
-    // Il modello scelto è per-sito (sites.model): la sessione dell'agente è per-sito,
-    // e siti diversi possono volere modelli diversi. Se la scelta salvata non è più
-    // risolvibile (modello custom cancellato, SDK aggiornato) si torna al default
-    // invece di rifiutare la connessione.
-    const savedModel = resolveModel(site.model);
-    if (site.model && !savedModel) {
-      console.warn(`[MODELS] '${site.slug}': modello salvato '${site.model}' non risolvibile, uso il default`);
-    }
-    const defaultModel = resolveModel(DEFAULT_MODEL_KEY);
-    if (!savedModel && !defaultModel) {
-      console.warn(`[MODELS] default '${DEFAULT_MODEL_KEY}' non risolvibile, uso il fallback '${FALLBACK_MODEL_KEY}'`);
-    }
-    const initialModel = savedModel ?? defaultModel ?? resolveModel(FALLBACK_MODEL_KEY);
-    // Mutabile: segue i set_model andati a buon fine, così un cambio rifiutato può
-    // rimandare alla UI il modello che sta girando davvero.
-    let activeModelKey = savedModel
-      ? site.model!
-      : defaultModel
-      ? DEFAULT_MODEL_KEY
-      : FALLBACK_MODEL_KEY;
+    const initialChoice = getSessionModel(modelRegistry);
 
     const sitePath = resolveSiteCwd(site);
 
@@ -1191,7 +1161,7 @@ wss.on('connection', async (ws, req) => {
     // attiva tutti i default automaticamente.
     const { session } = await createAgentSession({
       sessionManager: SessionManager.inMemory(),
-      model: initialModel,
+      model: initialChoice.model,
       authStorage,
       modelRegistry,
       cwd: sitePath,
@@ -1199,6 +1169,18 @@ wss.on('connection', async (ws, req) => {
       resourceLoader: loader,
     });
 
+    const modelSelection = createModelSelection(modelRegistry, session, initialChoice);
+    const reportModel = () => ws.send(JSON.stringify({ type: 'model_active', model: modelSelection.active.key }));
+    const changeModel = async (key: unknown) => {
+      try {
+        const chosen = await modelSelection.change(user.role, key);
+        reportModel();
+        ws.send(JSON.stringify({ type: 'system', content: `✅ ${chosen.model.name} è il modello predefinito di Tharvel per tutti i siti e clienti, anche nelle nuove sessioni.` }));
+      } catch (error: any) {
+        reportModel();
+        ws.send(JSON.stringify({ type: 'model_error', message: `Modello non salvato: ${error?.message ?? error}` }));
+      }
+    };
     // Log diagnostico: tool effettivamente attivi sulla session.
     try {
       const activeTools = (session as any).getActiveToolNames?.() ?? [];
@@ -1228,9 +1210,10 @@ wss.on('connection', async (ws, req) => {
 
     // Invio iniziale
     await sendFilesList();
-    // Il picker della UI parte da un default hardcoded: senza questo messaggio
-    // mostrerebbe quel default anche quando la sessione sta girando su un altro modello.
-    ws.send(JSON.stringify({ type: 'model_active', model: activeModelKey }));
+    // La preparazione del sito può essere lenta: riallinea anche eventuali cambi
+    // admin avvenuti durante il boot, poi conferma alla UI il modello effettivo.
+    await modelSelection.sync();
+    reportModel();
 
     // Garantisce branch `preview` al primo turn (lazy migration per i siti
     // onboardati prima dell'introduzione del flusso preview). Errori silenziati
@@ -1409,40 +1392,7 @@ wss.on('connection', async (ws, req) => {
       const data = JSON.parse(String(message));
       
       if (data.type === 'set_model') {
-        // Admin-only, come GET /api/models: la scelta del modello decide costo e
-        // qualità. Il picker è nascosto lato UI ai client, ma la WS è raggiungibile
-        // a mano, quindi il controllo deve stare anche qui.
-        if (user.role !== 'admin') {
-          console.warn(`[WS] '${site.slug}': set_model rifiutato per ${user.email} (role=${user.role})`);
-          ws.send(JSON.stringify({ type: 'error', message: 'Solo l\'amministratore può cambiare il modello AI.' }));
-          return;
-        }
-        // resolveModel copre sia i built-in dell'SDK sia i custom aggiunti dall'admin.
-        const newModel = resolveModel(data.model);
-        if (!newModel) {
-          ws.send(JSON.stringify({ type: 'error', message: `Modello non trovato: ${data.model}` }));
-          return;
-        }
-        try {
-          // setModel valida le credenziali del provider e lancia se mancano
-          // ("No API key for <provider>/<id>"): va intercettato, altrimenti un
-          // modello scelto senza login butta giù il server per tutti.
-          await session.setModel(newModel);
-        } catch (e: any) {
-          ws.send(JSON.stringify({
-            type: 'error',
-            message: `Impossibile passare a ${newModel.name}: ${e?.message ?? e}`,
-          }));
-          // Rimanda il modello che è ancora attivo, così il picker non resta a
-          // mostrare una scelta che il server ha rifiutato.
-          ws.send(JSON.stringify({ type: 'model_active', model: activeModelKey }));
-          return;
-        }
-        // Persistiamo solo dopo che la session l'ha accettato: salvare un modello
-        // che non parte lascerebbe il sito inutilizzabile alla riconnessione.
-        setSiteModel(site.slug, data.model);
-        activeModelKey = data.model;
-        ws.send(JSON.stringify({ type: 'system', content: `✅ Modello cambiato in: ${newModel.name}` }));
+        await changeModel(data.model);
         return;
       }
 
@@ -1503,21 +1453,13 @@ wss.on('connection', async (ws, req) => {
 
         // Gestione comandi slash manuale
         if (text.startsWith('/model ')) {
-          // Stessa restrizione di set_model: senza questo il cliente cambierebbe
-          // modello scrivendolo in chat, aggirando il picker nascosto.
-          if (user.role !== 'admin') {
-            ws.send(JSON.stringify({ type: 'error', message: 'Solo l\'amministratore può cambiare il modello AI.' }));
-            ws.send(JSON.stringify({ type: 'done' }));
-            return;
-          }
-          const newModelId = text.split(' ')[1];
-          const newModel = modelRegistry.find("github-copilot", newModelId) || modelRegistry.find("anthropic", newModelId);
-          if (newModel) {
-            await session.setModel(newModel);
-            ws.send(JSON.stringify({ type: 'system', content: `✅ Modello cambiato in: ${newModel.name}` }));
-          } else {
-            ws.send(JSON.stringify({ type: 'error', message: `Modello non trovato.` }));
-          }
+          const requested = text.slice('/model '.length).trim();
+          // Full provider/id is unambiguous; bare ids preserve the old command
+          // syntax, trying the current provider first (including custom Codex).
+          const provider = modelSelection.active.model.provider;
+          const choice = requested.includes('/') ? resolveModel(modelRegistry, requested)
+            : [provider, 'openai-codex', 'github-copilot', 'anthropic'].map(p => resolveModel(modelRegistry, `${p}/${requested}`)).find(Boolean);
+          await changeModel(choice?.key ?? requested);
           ws.send(JSON.stringify({ type: 'done' }));
           return;
         }
@@ -1529,6 +1471,11 @@ wss.on('connection', async (ws, req) => {
           ws.send(JSON.stringify({ type: 'done' }));
           return;
         }
+
+        // Anche una sessione cliente già aperta adotta l'ultima scelta globale
+        // prima di inviare il prossimo prompt; non cambia un turno in corso.
+        await modelSelection.sync();
+        reportModel();
 
         // Immagini allegate inline al prompt: vengono passate come ImageContent[]
         // al modello (multimodal input), senza essere salvate sul filesystem.
@@ -1602,7 +1549,7 @@ wss.on('connection', async (ws, req) => {
 
   } catch (error) {
     console.error('Errore inizializzazione sessione:', error);
-    ws.send(JSON.stringify({ type: 'error', message: 'Impossibile avviare il motore AI' }));
+    ws.send(JSON.stringify({ type: 'error', message: `Impossibile avviare il motore AI: ${error instanceof Error ? error.message : String(error)}` }));
   }
 });
 

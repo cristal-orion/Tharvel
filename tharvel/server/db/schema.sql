@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS sites (
   domain TEXT UNIQUE,
   cwd_path TEXT NOT NULL,
   framework TEXT NOT NULL DEFAULT 'html',
-  -- Modello AI scelto per questo sito ("<provider>/<modelId>"). NULL = default.
+  -- Scelta per-sito legacy, migrata nel default globale di app_settings.
   model TEXT,
   repo_url TEXT,
   preview_url TEXT,
@@ -13,6 +13,14 @@ CREATE TABLE IF NOT EXISTS sites (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sites_domain ON sites(domain);
+
+-- Preferenze globali persistenti. Il modello scelto dall'admin vale per tutti
+-- i siti e tutti gli utenti, anche dopo un riavvio/deploy.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- Strato 4 (auth/identity) — vedi progetto-tharvel-security.md §3 Strato 4.
 -- Modello semplificato Beta: un utente è legato a UN solo sito (slug NOT NULL per

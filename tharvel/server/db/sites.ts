@@ -11,8 +11,8 @@ export interface Site {
   domain: string | null;
   cwd_path: string;
   framework: SiteFramework;
-  // Modello AI scelto per questo sito, come "<provider>/<modelId>".
-  // NULL = mai scelto → il server usa il default.
+  // Scelta per-sito legacy, recuperata alla migrazione in app_settings.
+  // Le sessioni usano ora il default globale, non questa colonna.
   model: string | null;
   repo_url: string | null;
   preview_url: string | null;
@@ -55,14 +55,6 @@ export function createSite(input: NewSite): Site {
     repo_url: input.repo_url ?? null,
     preview_url: input.preview_url ?? null,
   }) as Site;
-}
-
-// Persiste il modello scelto dall'admin per questo sito. Senza questo la scelta
-// viveva solo nella sessione WS: uscendo e rientrando si tornava al default.
-export function setSiteModel(slug: string, model: string): void {
-  getDb()
-    .prepare("UPDATE sites SET model = ?, updated_at = datetime('now') WHERE slug = ?")
-    .run(model, slug);
 }
 
 export function upsertSiteBySlug(input: NewSite): Site {

@@ -12,6 +12,8 @@ const props = defineProps<{
   isProcessing: boolean;
   isConnected: boolean;
   selectedModel: string;
+  isChangingModel?: boolean;
+  modelError?: string;
   auth: Record<string, 'connected' | 'disconnected' | 'pending'>;
   pendingImages: PendingImage[];
   mobile?: boolean;
@@ -117,7 +119,7 @@ const reasoningOpen = ref(false);
 const send = () => {
   const t = input.value.trim();
   // Mandiamo anche con testo vuoto se ci sono immagini allegate.
-  if (props.isProcessing || !props.isConnected) return;
+  if (props.isProcessing || props.isChangingModel || !props.isConnected) return;
   if (!t && props.pendingImages.length === 0) return;
   emit('send', t);
   input.value = '';
@@ -303,6 +305,8 @@ const formatMessage = (text: string) => {
     </div>
 
     <div class="composer">
+      <p v-if="isAdmin && modelError" class="model-feedback error" role="alert">{{ modelError }}</p>
+      <p v-else-if="isAdmin && isChangingModel" class="model-feedback" role="status">Salvataggio del modello predefinito per tutti i siti…</p>
       <div v-if="selectedElement" class="selection-context">
         <span>Elemento: <strong>{{ selectedElement.tag }}{{ selectedElement.id ? `#${selectedElement.id}` : '' }}</strong></span>
         <button @click="emit('clear-element')" aria-label="Deseleziona elemento">×</button>
@@ -355,6 +359,8 @@ const formatMessage = (text: string) => {
           v-if="isAdmin && visible"
           :selected="selectedModel"
           :auth="auth"
+          :disabled="!isConnected || isProcessing || isChangingModel"
+          :pending="isChangingModel"
           @update:selected="emit('update:selectedModel', $event)"
           @open-settings="emit('open-settings')"
         />
@@ -377,7 +383,7 @@ const formatMessage = (text: string) => {
 
         <div class="spacer"></div>
 
-        <button class="send" @click="send" aria-label="Invia messaggio" :disabled="(!input.trim() && pendingImages.length === 0) || isProcessing || !isConnected">
+        <button class="send" @click="send" aria-label="Invia messaggio" :disabled="(!input.trim() && pendingImages.length === 0) || isProcessing || isChangingModel || !isConnected">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
             <path d="M5 12 L12 5 L19 12 M12 5 L12 19" />
           </svg>
@@ -780,18 +786,62 @@ const formatMessage = (text: string) => {
 .chip-enter-active, .chip-leave-active { transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .chip-enter-from, .chip-leave-to { opacity: 0; transform: scale(0.9); }
 .selection-context { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--brand); margin-bottom: 6px; }
+.model-feedback { margin: 0 0 8px; font-size: 12px; line-height: 1.5; color: var(--text-soft); overflow-wrap: anywhere; }
+.model-feedback.error { padding: 8px 10px; background: var(--error-bg); color: var(--error-text); border-radius: var(--radius); }
 .selection-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .selection-context button { background: var(--brand-soft); border: 0; border-radius: 6px; font-size: 20px; min-width: 32px; min-height: 32px; }
 .mobile-chat {
   --chat-height: min(60dvh, calc(var(--visual-height, 100dvh) - 64px - env(safe-area-inset-top)));
+  --glass-edge: rgba(255, 255, 255, .72);
+  --glass-glint: rgba(255, 255, 255, .48);
+  --glass-shadow: rgba(35, 28, 21, .18);
   position: fixed; z-index: 50; left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right));
   top: calc(var(--visual-top, 0px) + var(--visual-height, 100dvh) - var(--chat-height));
   width: auto !important; height: var(--chat-height);
-  border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 20px 20px 0 0;
-  box-shadow: 0 -8px 40px rgba(0,0,0,.18); padding-bottom: env(safe-area-inset-bottom);
+  border: 1px solid var(--glass-edge); border-bottom: 0; border-radius: 24px 24px 0 0;
+  box-shadow: 0 -8px 40px var(--glass-shadow), 0 0 0 1px color-mix(in srgb, var(--border) 45%, transparent);
+  padding-bottom: env(safe-area-inset-bottom);
   transition: none;
 }
-.mobile-chat.expanded, :global(.keyboard-open) .mobile-chat {
+:global(:root[data-theme="dark"] .mobile-chat) {
+  --glass-edge: rgba(255, 255, 255, .2);
+  --glass-glint: rgba(255, 255, 255, .1);
+  --glass-shadow: rgba(0, 0, 0, .4);
+}
+/* Blur on a separate layer: filtering the panel itself would turn it into a
+   containing block for the fixed model picker, displacing it on mobile. */
+.mobile-chat::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  border-radius: inherit; pointer-events: none;
+  box-shadow: inset 0 1px 0 var(--glass-glint), inset 1px 0 0 var(--glass-glint), inset -1px 0 0 color-mix(in srgb, var(--glass-glint) 40%, transparent);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mobile-chat { background: transparent; }
+  .mobile-chat::before {
+    background: linear-gradient(145deg, var(--glass-glint), transparent 38%), color-mix(in srgb, var(--bg) 76%, transparent);
+    -webkit-backdrop-filter: blur(24px) saturate(145%);
+    backdrop-filter: blur(24px) saturate(145%);
+  }
+  .mobile-chat .chat-bar { border-bottom-color: color-mix(in srgb, var(--border) 65%, transparent); }
+  .mobile-chat .composer {
+    background: color-mix(in srgb, var(--bg) 48%, transparent);
+    border-top-color: color-mix(in srgb, var(--border) 65%, transparent);
+    box-shadow: 0 -1px 0 color-mix(in srgb, var(--glass-glint) 50%, transparent);
+  }
+  .mobile-chat .composer textarea {
+    background: color-mix(in srgb, var(--bg) 82%, transparent);
+    border-color: color-mix(in srgb, var(--border-strong) 65%, transparent);
+    box-shadow: inset 0 1px 2px color-mix(in srgb, var(--glass-shadow) 35%, transparent);
+  }
+  .mobile-chat .msg.ai .msg-bubble { background: color-mix(in srgb, var(--bg) 88%, transparent); }
+  .mobile-chat .msg-system { background: color-mix(in srgb, var(--bg) 85%, transparent); border-radius: var(--radius); }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .mobile-chat { background: var(--bg); }
+  .mobile-chat::before { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .mobile-chat .composer, .mobile-chat .composer textarea, .mobile-chat .msg.ai .msg-bubble, .mobile-chat .msg-system { background: var(--bg); }
+}
+.mobile-chat.expanded, :global(.keyboard-open .mobile-chat) {
   --chat-height: calc(var(--visual-height, 100dvh) - 64px - env(safe-area-inset-top));
 }
 .sheet-handle { height: 22px; flex-shrink: 0; border: 0; background: transparent; display: grid; place-items: center; touch-action: none; border-radius: 20px 20px 0 0; }

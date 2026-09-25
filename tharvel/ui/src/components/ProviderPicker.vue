@@ -7,6 +7,8 @@ import ProviderIcon from './ProviderIcon.vue';
 const props = defineProps<{
   selected: string;
   auth: Record<string, 'connected' | 'disconnected' | 'pending'>;
+  disabled?: boolean;
+  pending?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -35,7 +37,7 @@ const current = computed(() => {
   const m = modelsFor(provider).find((mm) => mm.id === model);
   return {
     providerLabel: p?.label || provider,
-    modelLabel: m?.label || model,
+    modelLabel: m?.label || model || 'Caricamento modello…',
     providerId: provider,
   };
 });
@@ -50,6 +52,7 @@ const onDocClick = (e: MouseEvent) => {
 };
 
 const select = (provId: string, modelId: string) => {
+  if (props.disabled) return;
   if (props.auth[provId] !== 'connected') {
     emit('open-settings');
     close();
@@ -68,7 +71,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocClick));
 
 <template>
   <div class="picker-root" ref="root">
-    <button class="trigger" @click="open = !open" :aria-expanded="open" aria-label="Scegli modello AI">
+    <button class="trigger" @click="open = !open" :aria-expanded="open" :disabled="disabled" :aria-busy="pending" aria-label="Scegli modello AI" title="Modello predefinito per tutti i siti, clienti e nuove sessioni">
       <span class="dot" :class="{ on: auth[current.providerId] === 'connected' }"></span>
       <span class="label">{{ current.providerLabel }}</span>
       <span class="model">{{ current.modelLabel }}</span>
@@ -79,7 +82,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocClick));
 
     <transition name="pop">
       <div v-if="open" class="popup">
-        <div class="popup-header">Provider</div>
+        <div class="popup-header">Modello predefinito di Tharvel<small>La scelta vale per tutti i siti e clienti.</small></div>
         <div class="popup-list">
           <div v-for="p in PROVIDERS" :key="p.id" class="prov">
             <button
@@ -183,6 +186,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocClick));
   color: var(--text-mute);
   border-bottom: 1px solid var(--border);
 }
+.popup-header small { display: block; margin-top: 5px; text-transform: none; letter-spacing: 0; font-size: 11px; font-weight: 400; }
 .popup-list {
   max-height: 360px;
   overflow-y: auto;

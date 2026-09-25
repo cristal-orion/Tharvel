@@ -13,7 +13,7 @@
     "onboard": "node dist/scripts/onboard.js",
     "create-user": "node dist/scripts/create-user.js",
     "login:codex": "node dist/scripts/login-codex.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --import tsx --test ../tests/model-selection.test.mts"
   },
   "keywords": [],
   "author": "",

@@ -34,8 +34,16 @@ export function getDb(): Database.Database {
   };
 
   addColumnIfMissing('sites', 'framework', "framework TEXT NOT NULL DEFAULT 'html'");
-  // Modello AI scelto per questo sito, come "<provider>/<modelId>". NULL = default.
+  // Colonna legacy, necessaria anche per migrare i DB antecedenti alla scelta per-sito.
   addColumnIfMissing('sites', 'model', 'model TEXT');
+  // Recupera l'ultima scelta admin della versione per-sito. Non sovrascrive mai
+  // un default globale già impostato, neppure ai successivi riavvii.
+  db.exec(`
+    INSERT OR IGNORE INTO app_settings (key, value)
+    SELECT 'default_model', model FROM sites
+    WHERE model IS NOT NULL AND trim(model) <> ''
+    ORDER BY updated_at DESC, id DESC LIMIT 1
+  `);
   // Password del pannello cifrata (vedi secret-box.ts): serve a ristampare il
   // messaggio di handover per il cliente. NULL = non recuperabile.
   addColumnIfMissing('users', 'password_enc', 'password_enc TEXT');

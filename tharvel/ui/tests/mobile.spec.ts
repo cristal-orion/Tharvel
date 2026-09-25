@@ -8,7 +8,7 @@ const bootstrap = readFileSync(new URL('../../server/preview-bootstrap.html', im
 const revision = { id: 1, commit_sha: 'abc', parent_sha: 'def', user_prompt: 'Cambia titolo', summary: 'Titolo aggiornato', files_changed: ['index.html'], kind: 'turn', superseded: false, created_at: '2026-09-25 10:00:00' };
 const image = { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64') };
 
-async function setup(page: Page, role: 'admin' | 'client' = 'admin', loggedIn = true) {
+async function setup(page: Page, role: 'admin' | 'client' = 'admin', loggedIn = true, initialModel: string | null = 'openai-codex/gpt-5.6-sol') {
   let socket: WebSocketRoute;
   let previewLoads = 0;
   let socketCount = 0;
@@ -25,6 +25,10 @@ async function setup(page: Page, role: 'admin' | 'client' = 'admin', loggedIn = 
       if (!loggedIn) return route.fulfill({ status: 401, json: {} });
       body = { user };
     } else if (url.pathname === '/api/login') body = { user };
+    else if (url.pathname === '/api/admin/models/default' && route.request().method() === 'PUT') {
+      initialModel = route.request().postDataJSON().model;
+      body = { model: initialModel };
+    }
     else if (url.pathname === '/api/sites') body = { sites: [
       { id: 1, slug: 'demo-site', domain: 'example.test', framework: 'html' },
       { id: 2, slug: 'second-site', domain: 'second.test', framework: 'astro' },
@@ -53,7 +57,9 @@ async function setup(page: Page, role: 'admin' | 'client' = 'admin', loggedIn = 
   await page.routeWebSocket(/\?site=/, ws => {
     socket = ws;
     socketCount++;
-    ws.send(JSON.stringify({ type: 'model_active', model: 'openai-codex/gpt-5.6-sol' }));
+    ws.send(JSON.stringify(initialModel
+      ? { type: 'model_active', model: initialModel }
+      : { type: 'error', message: 'Il modello predefinito non è disponibile.' }));
     ws.send(JSON.stringify({ type: 'files_list', files: [{ name: 'logo.png', path: 'assets/logo.png', isImage: true }] }));
     ws.onMessage(data => sent.push(JSON.parse(String(data))));
   });
@@ -65,6 +71,8 @@ async function setup(page: Page, role: 'admin' | 'client' = 'admin', loggedIn = 
     reply(content: string) { socket.send(JSON.stringify({ type: 'stream', content })); },
     done() { socket.send(JSON.stringify({ type: 'done' })); },
     disconnect() { socket.close({ code: 1011, reason: 'test disconnect' }); },
+    confirmModel(model: string) { initialModel = model; socket.send(JSON.stringify({ type: 'model_active', model })); },
+    rejectModel(message: string) { socket.send(JSON.stringify({ type: 'model_error', message })); },
   };
 }
 
@@ -310,6 +318,49 @@ test('desktop entry retains resizable panels, collapse controls and draft', asyn
   await page.locator('.prov-row').first().click();
   await page.locator('.model-row').first().click();
   await expect.poll(() => app.sent.some(p => p.type === 'set_model')).toBe(true);
+  expect(app.errors).toEqual([]);
+});
+
+test('model picker waits for server confirmation and restores the confirmed choice on reconnect', async ({ page }) => {
+  const app = await setup(page);
+  await ready(page);
+  await page.getByRole('button', { name: 'Apri chat', exact: true }).click();
+  await page.getByRole('button', { name: 'Scegli modello AI' }).click();
+  await expect(page.locator('.popup-header')).toContainText('La scelta vale per tutti i siti e clienti');
+  await page.locator('.prov-row').first().click();
+  await page.locator('.model-row').first().click();
+  await expect.poll(() => app.sent.some(p => p.type === 'set_model')).toBe(true);
+  await expect(page.locator('.trigger .model')).toHaveText('gpt-5.6-sol');
+  await expect(page.getByRole('button', { name: 'Scegli modello AI' })).toBeDisabled();
+  app.confirmModel('openai-codex/gpt-5.5');
+  await expect(page.locator('.trigger .model')).toHaveText('GPT-5.5');
+  await expect(page.getByRole('button', { name: 'Scegli modello AI' })).toBeEnabled();
+  await page.reload();
+  await ready(page);
+  await page.getByRole('button', { name: 'Apri chat', exact: true }).click();
+  await expect(page.locator('.trigger .model')).toHaveText('GPT-5.5');
+  await page.getByRole('button', { name: 'Scegli modello AI' }).click();
+  await page.locator('.prov-row').first().click();
+  await page.locator('.model-row').nth(1).click();
+  app.rejectModel('Credenziali non disponibili: modello non salvato.');
+  await expect(page.getByRole('alert')).toContainText('modello non salvato');
+  await expect(page.locator('.trigger .model')).toHaveText('GPT-5.5');
+  await expect(page.getByRole('button', { name: 'Scegli modello AI' })).toBeEnabled();
+  expect(app.errors).toEqual([]);
+});
+
+test('admin can repair an unavailable default even when the AI session cannot boot', async ({ page }) => {
+  const app = await setup(page, 'admin', true, null);
+  await ready(page);
+  await page.getByRole('button', { name: 'Apri chat', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('predefinito non è disponibile');
+  await page.getByRole('button', { name: 'Scegli modello AI' }).click();
+  await page.locator('.prov-row').first().click();
+  await page.locator('.model-row').first().click();
+  await expect.poll(() => app.requests.includes('PUT /api/admin/models/default')).toBe(true);
+  await expect.poll(() => app.socketCount).toBe(2);
+  await expect(page.locator('.trigger .model')).toHaveText('GPT-5.5');
+  await expect(page.getByRole('alert')).toHaveCount(0);
   expect(app.errors).toEqual([]);
 });
 

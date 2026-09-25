@@ -32,11 +32,29 @@ eventuale risultato parziale e ritenta la connessione, senza reinviare il prompt
 
 ## Verifica locale
 
+### Modello AI predefinito
+
+Il modello selezionato dall'admin nella chat (o con `/model provider/id`) è il
+predefinito **globale** per tutti i siti e clienti, salvato in SQLite nella tabella
+`app_settings`. Il picker attende la conferma del server: durante il salvataggio
+resta visibile il modello precedente; in caso di errore non viene sostituito.
+Le sessioni già aperte si riallineano prima del prompt successivo, senza cambiare
+un turno in corso. La selezione resta valida dopo logout, riavvio e deploy.
+
+Alla prima migrazione viene recuperata l'ultima scelta per-sito salvata dall'admin.
+L'aggiunta di un modello custom alle impostazioni lo rende selezionabile, ma non
+lo attiva automaticamente. Un modello predefinito non può essere cancellato prima
+di averne scelto un altro; se diventa indisponibile non si passa silenziosamente a
+GPT-5.5. L'admin può sostituirlo dal picker anche quando la sessione AI non si avvia.
+
+### Comandi
+
 Dalla directory `tharvel`:
 
 ```sh
 npm run build --workspace ui
 npm run build --workspace server
+npm test --workspace server
 npx playwright install --with-deps chromium webkit
 npm run test:e2e --workspace ui
 ```

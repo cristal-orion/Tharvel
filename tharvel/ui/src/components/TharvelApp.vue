@@ -199,6 +199,8 @@ const noSlug = computed(() => !activeSlug.value);
         :is-processing="session.isProcessing.value"
         :is-connected="session.isConnected.value"
         :selected-model="session.selectedModel.value"
+        :is-changing-model="session.isChangingModel.value"
+        :model-error="session.modelError.value"
         :auth="session.auth"
         :pending-images="session.pendingImages.value"
         @send="session.sendPrompt($event)"

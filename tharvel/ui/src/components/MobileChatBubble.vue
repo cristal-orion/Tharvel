@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import logoMark from '../assets/logo-mark.png';
 
 const props = defineProps<{ processing: boolean; connected: boolean; unread: boolean }>();
 const emit = defineEmits<{ (e: 'open'): void }>();
@@ -71,10 +72,7 @@ onUnmounted(() => observer?.disconnect());
       :style="{ transform: `translate(${x}px, ${y}px)` }" :aria-label="label" :title="label"
       aria-controls="tharvel-chat" aria-expanded="false"
       @pointerdown="down" @pointermove="move" @pointerup="up" @pointercancel="up" @lostpointercapture="up" @contextmenu.prevent @click="click">
-      <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5H4l-2 2V11.5A8.5 8.5 0 0 1 10.5 3h2A8.5 8.5 0 0 1 21 11.5Z" />
-        <path d="M7 10h9M7 14h5" />
-      </svg>
+      <img :src="logoMark" class="bubble-logo" alt="" aria-hidden="true" draggable="false" />
       <span v-if="unread || processing || !connected" class="bubble-status" aria-hidden="true">{{ !connected ? '!' : processing ? '…' : '1' }}</span>
     </button>
     <span class="sr-only" role="status">{{ label }}</span>
@@ -99,6 +97,10 @@ onUnmounted(() => observer?.disconnect());
   cursor: grab;
 }
 .chat-bubble.dragging { cursor: grabbing; }
+.bubble-logo {
+  width: 34px; height: 34px; object-fit: contain;
+  filter: brightness(0) invert(1); pointer-events: none;
+}
 .bubble-status {
   position: absolute; right: -2px; top: -2px; min-width: 22px; height: 22px;
   display: grid; place-items: center; border-radius: 50%; border: 2px solid var(--bg);

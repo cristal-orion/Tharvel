@@ -40,7 +40,7 @@ export interface BuildCodexModelOpts {
 }
 
 // Clona il template Codex e sovrascrive id/name (+ limiti opzionali).
-export function buildCodexModel(registry: ModelRegistry, opts: BuildCodexModelOpts): Model<Api> {
+export function buildCodexModel(registry: Pick<ModelRegistry, 'find'>, opts: BuildCodexModelOpts): Model<Api> {
   let template: Model<Api> | undefined;
   for (const id of CODEX_TEMPLATE_IDS) {
     template = registry.find('openai-codex', id);

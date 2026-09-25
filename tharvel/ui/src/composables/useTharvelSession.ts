@@ -1,5 +1,5 @@
 import { ref, reactive, onMounted, onUnmounted, watch, type Ref } from 'vue';
-import { buildWsUrl, BASE_PATH } from '../site';
+import { buildWsUrl, BASE_PATH, apiUrl } from '../site';
 
 export type Role = 'user' | 'ai' | 'system';
 export interface ChatAttachment {
@@ -40,7 +40,10 @@ export function useTharvelSession(slug: Ref<string | null>) {
   const projectFiles = ref<ProjectFile[]>([]);
   const selectedFiles = ref<string[]>([]);
   const selectedElement = ref<SelectedElement | null>(null);
-  const selectedModel = ref('openai-codex/gpt-5.6-sol');
+  // The server is authoritative: never display a hardcoded or unconfirmed model.
+  const selectedModel = ref('');
+  const isChangingModel = ref(false);
+  const modelError = ref('');
   // Immagini allegate al prossimo prompt: vivono solo lato client finché l'utente
   // non clicca "invia" — non vengono salvate come asset del sito, ma passate inline
   // all'LLM come ImageContent. Caso d'uso tipico: screenshot di riferimento.
@@ -138,10 +141,17 @@ export function useTharvelSession(slug: Ref<string | null>) {
       case 'files_list':
         projectFiles.value = data.files;
         break;
-      // Modello con cui il server ha davvero aperto la sessione (letto da
-      // sites.model). Allinea il picker, che altrimenti mostrerebbe il default.
+      // Modello effettivo confermato dal server, a partire dal default globale
+      // persistente. Il picker non anticipa mai una scelta ancora da salvare.
       case 'model_active':
         if (typeof data.model === 'string') selectedModel.value = data.model;
+        isChangingModel.value = false;
+        modelError.value = '';
+        break;
+      case 'model_error':
+        isChangingModel.value = false;
+        modelError.value = data.message || 'Impossibile salvare il modello.';
+        messages.value.push({ role: 'system', content: `✕ ${modelError.value}` });
         break;
       case 'files_updated':
         send({ type: 'get_files' });
@@ -151,6 +161,7 @@ export function useTharvelSession(slug: Ref<string | null>) {
         break;
       case 'error':
         isProcessing.value = false;
+        if (!selectedModel.value) modelError.value = data.message;
         messages.value.push({ role: 'system', content: `✕ ${data.message}` });
         break;
     }
@@ -177,16 +188,20 @@ export function useTharvelSession(slug: Ref<string | null>) {
       ws = null;
     }
     isConnected.value = false;
+    isChangingModel.value = false;
   };
 
   const connect = () => {
     if (!slug.value) return; // nessuno slug attivo (es. admin senza sito selezionato)
+    selectedModel.value = '';
     shouldReconnect = true;
     ws = new WebSocket(buildWsUrl(slug.value));
     ws.onopen = () => { isConnected.value = true; };
     ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
     ws.onclose = () => {
       isConnected.value = false;
+      if (isChangingModel.value) modelError.value = 'Connessione interrotta: la scelta verrà verificata alla riconnessione.';
+      isChangingModel.value = false;
       if (isProcessing.value) {
         isProcessing.value = false;
         currentAi = '';
@@ -207,6 +222,8 @@ export function useTharvelSession(slug: Ref<string | null>) {
     selectedFiles.value = [];
     pendingImages.value = [];
     projectFiles.value = [];
+    selectedModel.value = '';
+    modelError.value = '';
     messages.value = [{ role: 'system', content: 'Pronto. Scrivi una richiesta per questo sito.' }];
     isProcessing.value = false;
     currentAi = '';
@@ -215,7 +232,7 @@ export function useTharvelSession(slug: Ref<string | null>) {
   });
 
   const sendPrompt = (text: string) => {
-    if (isProcessing.value || !isConnected.value || ws?.readyState !== WebSocket.OPEN) return;
+    if (isProcessing.value || isChangingModel.value || !isConnected.value || ws?.readyState !== WebSocket.OPEN) return;
     const hasImages = pendingImages.value.length > 0;
     if (!text.trim() && !hasImages) return;
 
@@ -285,8 +302,26 @@ export function useTharvelSession(slug: Ref<string | null>) {
     pendingImages.value = pendingImages.value.filter((p) => p.id !== id);
   };
 
-  const setModel = (model: string) => {
-    selectedModel.value = model;
+  const setModel = async (model: string) => {
+    if (!isConnected.value || ws?.readyState !== WebSocket.OPEN || isChangingModel.value || isProcessing.value) return;
+    isChangingModel.value = true;
+    modelError.value = '';
+    if (!selectedModel.value) {
+      // A failed engine boot has no WS command handler yet. Let the admin repair
+      // the global setting via the authenticated API, then create a new session.
+      try {
+        const res = await fetch(apiUrl('/api/admin/models/default'), {
+          method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model }),
+        });
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.error || 'Impossibile salvare il modello.');
+        reconnect();
+      } catch (error) {
+        modelError.value = error instanceof Error ? error.message : String(error);
+      } finally { isChangingModel.value = false; }
+      return;
+    }
     send({ type: 'set_model', model });
   };
 
@@ -346,6 +381,8 @@ export function useTharvelSession(slug: Ref<string | null>) {
     selectedFiles,
     selectedElement,
     selectedModel,
+    isChangingModel,
+    modelError,
     iframeNonce,
     previewPath,
     currentPreviewPath,
