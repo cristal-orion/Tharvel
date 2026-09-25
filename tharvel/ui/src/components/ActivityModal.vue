@@ -120,11 +120,11 @@ const promptCount = computed(() => events.value.filter((e) => e.kind === 'prompt
 </script>
 
 <template>
-  <div class="modal-shell" @click.self="emit('close')">
-    <div class="modal">
+  <div class="modal-shell dialog-shell" @click.self="emit('close')">
+    <div class="modal dialog-card" v-dialog="true" role="dialog" aria-modal="true" aria-label="Attività del sito">
       <header class="modal-head">
         <h2>Attività · {{ slug }}</h2>
-        <button class="close-btn" @click="emit('close')" title="Chiudi">✕</button>
+        <button class="close-btn" data-dialog-close aria-label="Chiudi attività" @click="emit('close')" title="Chiudi">✕</button>
       </header>
 
       <nav class="tabs">
@@ -183,7 +183,7 @@ const promptCount = computed(() => events.value.filter((e) => e.kind === 'prompt
             <p v-if="commands.length === 0" class="hint">
               Nessun comando ancora osservato.
             </p>
-            <table v-else class="table">
+            <div v-else class="table-scroll" role="region" aria-label="Comandi eseguiti" tabindex="0"><table class="table">
               <thead>
                 <tr><th>Comando</th><th>Usi</th><th>Errori</th><th>Ultimo</th></tr>
               </thead>
@@ -195,7 +195,7 @@ const promptCount = computed(() => events.value.filter((e) => e.kind === 'prompt
                   <td class="ts">{{ fmt(c.last_used) }}</td>
                 </tr>
               </tbody>
-            </table>
+            </table></div>
           </template>
 
           <!-- ONLINE -->
@@ -241,6 +241,7 @@ const promptCount = computed(() => events.value.filter((e) => e.kind === 'prompt
 </template>
 
 <style scoped>
+.table-scroll { overflow-x: auto; max-width: 100%; }
 .modal-shell {
   position: fixed;
   inset: 0;

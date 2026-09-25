@@ -185,11 +185,11 @@ function finish() {
 </script>
 
 <template>
-  <div class="modal-shell" @click.self="emit('close')">
-    <div class="modal">
+  <div class="modal-shell dialog-shell" @click.self="emit('close')">
+    <div class="modal dialog-card" v-dialog="true" role="dialog" aria-modal="true" aria-label="Aggiungi sito">
       <header class="modal-head">
         <h2>Aggiungi sito</h2>
-        <button class="close-btn" @click="emit('close')" title="Chiudi">✕</button>
+        <button class="close-btn" data-dialog-close aria-label="Chiudi aggiunta sito" @click="emit('close')" title="Chiudi">✕</button>
       </header>
 
       <!-- STEP 1: Lookup -->
@@ -206,7 +206,6 @@ function finish() {
             placeholder="https://github.com/cristal-orion/nuovo-sito"
             :disabled="lookupBusy"
             @keyup.enter="doLookup"
-            autofocus
           />
         </label>
         <div v-if="errorMsg" class="err">{{ errorMsg }}</div>

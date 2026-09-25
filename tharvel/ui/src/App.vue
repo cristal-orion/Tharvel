@@ -3,8 +3,10 @@ import { onMounted } from 'vue';
 import TharvelApp from './components/TharvelApp.vue';
 import LoginForm from './components/LoginForm.vue';
 import { useAuth } from './composables/useAuth';
+import { useVisualViewport } from './composables/useMobileLayout';
 
 const { user, loading, init } = useAuth();
+useVisualViewport();
 
 // Al mount chiediamo /api/me: se il cookie di sessione è valido entriamo già
 // loggati (utile per F5 dopo login). Se 401, mostriamo LoginForm.

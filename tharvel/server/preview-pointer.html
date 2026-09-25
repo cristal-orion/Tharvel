@@ -1,0 +1,110 @@
+<script data-tharvel-pointer="2">
+  // Install before site scripts, including legacy inline Alt-click selectors.
+  // Only the active parent window can enable touch selection.
+  (function () {
+    if (window.parent === window || window.__tharvelPointerV2) return;
+    window.__tharvelPointerV2 = true;
+    let enabled = false;
+    let highlight = null;
+    let hover = null;
+    let touch = null;
+    let suppressClickUntil = 0;
+    // The ready handshake also works after cross-origin dev iframe navigation,
+    // where document.referrer is the previous iframe URL, not the editor URL.
+    let parentOrigin = null;
+    function notify(type, extra) {
+      if (parentOrigin) window.parent.postMessage(Object.assign({ type: type }, extra), parentOrigin);
+    }
+    function clear() {
+      document.querySelectorAll('.tharvel-highlight, .tharvel-hover').forEach(function (el) {
+        el.classList.remove('tharvel-highlight', 'tharvel-hover');
+      });
+      highlight = hover = null;
+    }
+    function xpath(element) {
+      // Positional paths also work for SVG, quotes in ids, and the root element.
+      const parts = [];
+      for (let el = element; el && el.nodeType === 1; el = el.parentElement) {
+        let index = 1;
+        for (let sibling = el.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+          if (sibling.localName === el.localName) index++;
+        }
+        parts.unshift('*[local-name()="' + el.localName + '"][' + index + ']');
+      }
+      return '/' + parts.join('/');
+    }
+    window.addEventListener('message', function (event) {
+      if (event.source !== window.parent || (parentOrigin && event.origin !== parentOrigin)) return;
+      if (event.data?.type === 'THARVEL_INSPECT_MODE') {
+        parentOrigin = event.origin;
+        enabled = event.data.enabled === true;
+        if (!enabled && hover) { hover.classList.remove('tharvel-hover'); hover = null; }
+      }
+      if (event.data?.type === 'THARVEL_CLEAR_SELECTION') clear();
+    });
+    function select(target) {
+      clear();
+      highlight = target;
+      highlight.classList.add('tharvel-highlight');
+      enabled = false;
+      notify('THARVEL_ELEMENT_SELECTED', { info: {
+        tag: highlight.localName,
+        id: highlight.id || '',
+        classes: Array.from(highlight.classList).filter(c => !c.startsWith('tharvel-')).join(' '),
+        text: (highlight.textContent || '').trim().slice(0, 150),
+        xpath: xpath(highlight),
+      } });
+    }
+    window.addEventListener('pointerdown', function (event) {
+      suppressClickUntil = 0;
+      if (!enabled || event.pointerType === 'mouse' || !event.isPrimary) return;
+      touch = { x: event.clientX, y: event.clientY, target: event.target, moved: false };
+      // Do not preventDefault: native scrolling must keep working in inspect mode.
+      event.stopImmediatePropagation();
+    }, true);
+    window.addEventListener('pointercancel', function () { touch = null; }, true);
+    window.addEventListener('pointerup', function (event) {
+      if (!touch || !enabled) return;
+      const tap = touch;
+      touch = null;
+      if (tap.moved || !(tap.target instanceof Element)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      suppressClickUntil = performance.now() + 700;
+      select(tap.target);
+    }, true);
+    window.addEventListener('click', function (event) {
+      // Consume the compatibility click after a touch selection (not the next tap).
+      if (performance.now() < suppressClickUntil) {
+        suppressClickUntil = 0;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+      if ((!enabled && !event.altKey) || !(event.target instanceof Element)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      select(event.target);
+    }, true);
+    window.addEventListener('pointermove', function (event) {
+      if (touch && Math.hypot(event.clientX - touch.x, event.clientY - touch.y) > 8) touch.moved = true;
+      if (hover) hover.classList.remove('tharvel-hover');
+      hover = null;
+      if ((enabled || event.altKey) && event.pointerType !== 'touch' && event.target instanceof Element) {
+        hover = event.target;
+        hover.classList.add('tharvel-hover');
+      }
+    }, true);
+    window.addEventListener('keyup', function (event) {
+      if (!event.altKey && hover) { hover.classList.remove('tharvel-hover'); hover = null; }
+    });
+    window.addEventListener('blur', function () {
+      if (hover) { hover.classList.remove('tharvel-hover'); hover = null; }
+    });
+    const style = document.createElement('style');
+    style.textContent = '.tharvel-hover{outline:2px dashed #10b981!important;outline-offset:2px!important;cursor:crosshair!important}.tharvel-highlight{outline:3px solid #10b981!important;outline-offset:2px!important}';
+    (document.head || document.documentElement).appendChild(style);
+    // No page data is sent until the actual parent has completed the handshake.
+    window.parent.postMessage({ type: 'THARVEL_POINTER_READY' }, '*');
+  })();
+</script>

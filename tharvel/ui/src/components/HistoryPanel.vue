@@ -204,6 +204,9 @@ const lastUndoable = (): Revision | null => {
 </template>
 
 <style scoped>
+@media (max-width: 1100px) {
+  .history-panel button { min-height: 44px; }
+}
 .history-panel {
   display: flex;
   flex-direction: column;

@@ -104,11 +104,11 @@ function copyMessage() {
 </script>
 
 <template>
-  <div class="modal-shell" @click.self="emit('close')">
-    <div class="modal">
+  <div class="modal-shell dialog-shell" @click.self="emit('close')">
+    <div class="modal dialog-card" v-dialog="true" role="dialog" aria-modal="true" aria-label="Chiavi di accesso">
       <header class="modal-head">
         <h2>Chiavi di accesso · {{ slug }}</h2>
-        <button class="close-btn" @click="emit('close')" title="Chiudi">✕</button>
+        <button class="close-btn" data-dialog-close aria-label="Chiudi chiavi di accesso" @click="emit('close')" title="Chiudi">✕</button>
       </header>
 
       <section class="body">

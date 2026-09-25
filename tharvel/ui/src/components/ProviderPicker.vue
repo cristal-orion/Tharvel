@@ -60,15 +60,15 @@ const select = (provId: string, modelId: string) => {
 };
 
 onMounted(() => {
-  document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('pointerdown', onDocClick);
   loadModels();
 });
-onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocClick));
 </script>
 
 <template>
   <div class="picker-root" ref="root">
-    <button class="trigger" @click="open = !open">
+    <button class="trigger" @click="open = !open" :aria-expanded="open" aria-label="Scegli modello AI">
       <span class="dot" :class="{ on: auth[current.providerId] === 'connected' }"></span>
       <span class="label">{{ current.providerLabel }}</span>
       <span class="model">{{ current.modelLabel }}</span>
@@ -277,5 +277,15 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick));
 .pop-enter-from, .pop-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+@media (max-width: 1100px) {
+  .picker-root { min-width: 0; flex: 1 1 150px; }
+  .trigger { width: 100%; min-height: 44px; min-width: 0; gap: 6px; padding: 6px 8px; }
+  .trigger .label { display: none; }
+  .trigger .model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; text-align: left; }
+  .trigger .dot, .trigger svg { flex-shrink: 0; }
+  .popup { position: fixed; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); width: auto; top: calc(var(--visual-top, 0px) + env(safe-area-inset-top) + 64px); bottom: auto; max-height: calc(var(--visual-height, 100dvh) - 180px); display: flex; flex-direction: column; }
+  .popup-list { max-height: none; min-height: 0; overscroll-behavior: contain; }
+  .prov-row, .model-row, .hint-row { min-height: 44px; }
 }
 </style>

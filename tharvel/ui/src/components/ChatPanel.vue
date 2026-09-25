@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue';
-import type { ChatMessage, PendingImage } from '../composables/useTharvelSession';
+import type { ChatMessage, PendingImage, SelectedElement } from '../composables/useTharvelSession';
 import ProviderPicker from './ProviderPicker.vue';
 import ChatWelcome from './ChatWelcome.vue';
 import EmptyState from './EmptyState.vue';
@@ -14,6 +14,10 @@ const props = defineProps<{
   selectedModel: string;
   auth: Record<string, 'connected' | 'disconnected' | 'pending'>;
   pendingImages: PendingImage[];
+  mobile?: boolean;
+  visible?: boolean;
+  expanded?: boolean;
+  selectedElement?: SelectedElement | null;
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +28,9 @@ const emit = defineEmits<{
   (e: 'remove-pending-image', id: string): void;
   (e: 'clear-chat'): void;
   (e: 'reconnect'): void;
+  (e: 'close'): void;
+  (e: 'toggle-expand'): void;
+  (e: 'clear-element'): void;
 }>();
 
 // La scelta del modello AI è riservata all'admin (vedi GET /api/models e
@@ -52,6 +59,7 @@ const input = ref('');
 const messagesEl = ref<HTMLElement | null>(null);
 const textareaEl = ref<HTMLTextAreaElement | null>(null);
 const fileInputEl = ref<HTMLInputElement | null>(null);
+const closeButton = ref<HTMLButtonElement | null>(null);
 const dragging = ref(false);
 let dragDepth = 0;
 
@@ -109,7 +117,7 @@ const reasoningOpen = ref(false);
 const send = () => {
   const t = input.value.trim();
   // Mandiamo anche con testo vuoto se ci sono immagini allegate.
-  if (props.isProcessing) return;
+  if (props.isProcessing || !props.isConnected) return;
   if (!t && props.pendingImages.length === 0) return;
   emit('send', t);
   input.value = '';
@@ -117,7 +125,7 @@ const send = () => {
 };
 
 const onKey = (e: KeyboardEvent) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !props.mobile) {
     e.preventDefault();
     send();
   }
@@ -130,7 +138,13 @@ const resize = () => {
   el.style.height = Math.min(el.scrollHeight, 180) + 'px';
 };
 
+const following = ref(true);
+function onScroll() {
+  const el = messagesEl.value;
+  if (el) following.value = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+}
 const scroll = () => {
+  if (!following.value || !props.visible) return;
   nextTick(() => {
     if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight;
   });
@@ -138,9 +152,34 @@ const scroll = () => {
 
 watch(() => props.messages.length, scroll);
 watch(() => props.messages[props.messages.length - 1]?.content, scroll);
+watch(() => props.visible, (visible) => {
+  if (visible) nextTick(() => {
+    resize(); scroll();
+    if (props.mobile) closeButton.value?.focus({ preventScroll: true });
+  });
+  else {
+    textareaEl.value?.blur();
+    reasoningOpen.value = false;
+    if (props.mobile) nextTick(() => document.querySelector<HTMLButtonElement>('.chat-bubble')?.focus({ preventScroll: true }));
+  }
+});
+
+let handleStart = 0;
+let handleMoved = false;
+function handleDown(event: PointerEvent) {
+  handleStart = event.clientY;
+  handleMoved = false;
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+}
+function handleUp(event: PointerEvent) {
+  const delta = event.clientY - handleStart;
+  handleMoved = Math.abs(delta) > 40;
+  if (delta < -40 && !props.expanded) emit('toggle-expand');
+  if (delta > 40) props.expanded ? emit('toggle-expand') : emit('close');
+}
 
 const formatMessage = (text: string) => {
-  let out = text.replace(/\n/g, '<br/>');
+  let out = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br/>');
   out = out.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
   return out;
@@ -149,14 +188,19 @@ const formatMessage = (text: string) => {
 
 <template>
   <aside
+    id="tharvel-chat"
+    aria-label="Chat Tharvel"
     class="chat"
-    :class="{ resizing: panelResize.dragging.value, dragging }"
+    :class="{ resizing: panelResize.dragging.value, dragging, 'mobile-chat': mobile, expanded }"
     :style="{ width: panelResize.width.value + 'px' }"
     @dragenter.prevent="onDragEnter"
     @dragover.prevent
     @dragleave.prevent="onDragLeave"
     @drop.prevent="onDrop"
+    @keydown.esc.stop="emit('close')"
   >
+    <button v-if="mobile" class="sheet-handle" :aria-label="expanded ? 'Riduci chat' : 'Espandi chat'"
+      @pointerdown="handleDown" @pointerup="handleUp" @click="!handleMoved && emit('toggle-expand')"><span></span></button>
     <div
       class="resize-handle"
       :class="{ active: panelResize.dragging.value }"
@@ -183,6 +227,9 @@ const formatMessage = (text: string) => {
         {{ isConnected ? 'Connessa' : 'Non connessa' }}
       </span>
       <div class="chat-actions">
+        <button v-if="mobile" class="hdr-btn" @click="emit('toggle-expand')" :aria-label="expanded ? 'Riduci chat' : 'Espandi chat'" :aria-expanded="expanded">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path :d="expanded ? 'M6 9 L12 15 L18 9' : 'M6 15 L12 9 L18 15'" /></svg>
+        </button>
         <button
           v-if="hasContent"
           class="hdr-btn"
@@ -193,10 +240,13 @@ const formatMessage = (text: string) => {
             <path d="M3 6 H21 M8 6 V4 H16 V6 M6 6 L7 20 H17 L18 6" />
           </svg>
         </button>
+        <button ref="closeButton" class="hdr-btn" @click="emit('close')" aria-label="Nascondi chat" title="Nascondi chat">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6 L18 18 M18 6 L6 18" /></svg>
+        </button>
       </div>
     </header>
 
-    <div class="messages" ref="messagesEl">
+    <div class="messages" ref="messagesEl" @scroll="onScroll">
       <div class="messages-inner">
         <template v-if="!hasContent && !isConnected">
           <EmptyState
@@ -253,6 +303,10 @@ const formatMessage = (text: string) => {
     </div>
 
     <div class="composer">
+      <div v-if="selectedElement" class="selection-context">
+        <span>Elemento: <strong>{{ selectedElement.tag }}{{ selectedElement.id ? `#${selectedElement.id}` : '' }}</strong></span>
+        <button @click="emit('clear-element')" aria-label="Deseleziona elemento">×</button>
+      </div>
       <transition-group v-if="pendingImages.length" name="chip" tag="div" class="pending-images">
         <div v-for="p in pendingImages" :key="p.id" class="pending-chip" :title="p.name">
           <img :src="p.dataUrl" :alt="p.name" />
@@ -273,6 +327,7 @@ const formatMessage = (text: string) => {
         @input="resize"
         @paste="onPaste"
         placeholder="Modifica il sito, fai una domanda…"
+        aria-label="Messaggio per Tharvel"
         rows="1"
         :disabled="!isConnected"
       />
@@ -297,7 +352,7 @@ const formatMessage = (text: string) => {
         </button>
 
         <ProviderPicker
-          v-if="isAdmin"
+          v-if="isAdmin && visible"
           :selected="selectedModel"
           :auth="auth"
           @update:selected="emit('update:selectedModel', $event)"
@@ -322,7 +377,7 @@ const formatMessage = (text: string) => {
 
         <div class="spacer"></div>
 
-        <button class="send" @click="send" :disabled="(!input.trim() && pendingImages.length === 0) || isProcessing || !isConnected">
+        <button class="send" @click="send" aria-label="Invia messaggio" :disabled="(!input.trim() && pendingImages.length === 0) || isProcessing || !isConnected">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
             <path d="M5 12 L12 5 L19 12 M12 5 L12 19" />
           </svg>
@@ -334,6 +389,8 @@ const formatMessage = (text: string) => {
 
 <style scoped>
 .chat {
+  min-height: 0;
+  min-width: 0;
   flex-shrink: 0;
   background: var(--bg);
   border-left: 1px solid var(--border);
@@ -343,6 +400,7 @@ const formatMessage = (text: string) => {
   transition: width var(--t-base);
 }
 .chat.resizing { transition: none; }
+.chat:not(.mobile-chat) { max-width: 38vw; }
 
 .resize-handle {
   position: absolute;
@@ -361,6 +419,7 @@ const formatMessage = (text: string) => {
 }
 
 .chat-bar {
+  flex-shrink: 0;
   height: 48px;
   display: flex;
   align-items: center;
@@ -429,6 +488,9 @@ const formatMessage = (text: string) => {
 }
 
 .messages {
+  min-height: 0;
+  overscroll-behavior: contain;
+  overflow-wrap: anywhere;
   flex: 1;
   overflow-y: auto;
   padding: 16px;
@@ -505,6 +567,7 @@ const formatMessage = (text: string) => {
 }
 
 .composer {
+  flex-shrink: 0;
   border-top: 1px solid var(--border);
   padding: 12px;
   background: var(--bg);
@@ -716,4 +779,38 @@ const formatMessage = (text: string) => {
 
 .chip-enter-active, .chip-leave-active { transition: all 0.18s cubic-bezier(0.2, 0.8, 0.2, 1); }
 .chip-enter-from, .chip-leave-to { opacity: 0; transform: scale(0.9); }
+.selection-context { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--brand); margin-bottom: 6px; }
+.selection-context span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.selection-context button { background: var(--brand-soft); border: 0; border-radius: 6px; font-size: 20px; min-width: 32px; min-height: 32px; }
+.mobile-chat {
+  --chat-height: min(60dvh, calc(var(--visual-height, 100dvh) - 64px - env(safe-area-inset-top)));
+  position: fixed; z-index: 50; left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right));
+  top: calc(var(--visual-top, 0px) + var(--visual-height, 100dvh) - var(--chat-height));
+  width: auto !important; height: var(--chat-height);
+  border: 1px solid var(--border-strong); border-bottom: 0; border-radius: 20px 20px 0 0;
+  box-shadow: 0 -8px 40px rgba(0,0,0,.18); padding-bottom: env(safe-area-inset-bottom);
+  transition: none;
+}
+.mobile-chat.expanded, :global(.keyboard-open) .mobile-chat {
+  --chat-height: calc(var(--visual-height, 100dvh) - 64px - env(safe-area-inset-top));
+}
+.sheet-handle { height: 22px; flex-shrink: 0; border: 0; background: transparent; display: grid; place-items: center; touch-action: none; border-radius: 20px 20px 0 0; }
+.sheet-handle span { width: 36px; height: 4px; border-radius: 4px; background: var(--border-strong); }
+.mobile-chat .resize-handle { display: none; }
+.mobile-chat .chat-bar { padding: 0 10px; }
+.mobile-chat .hdr-btn { width: 44px; height: 44px; }
+.mobile-chat .messages { padding: 12px; }
+.mobile-chat .composer { padding: 8px; }
+.mobile-chat .composer textarea { font-size: 16px; max-height: min(120px, 22dvh); }
+.mobile-chat .composer-bar { flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.mobile-chat .attach-btn, .mobile-chat .send { width: 44px; height: 44px; flex-shrink: 0; }
+.mobile-chat .pill { min-height: 44px; }
+.mobile-chat .pending-images { max-height: 72px; overflow-y: auto; }
+.mobile-chat .pending-x { width: 36px; height: 36px; }
+.mobile-chat .selection-context button { min-height: 36px; min-width: 36px; }
+@media (max-height: 500px) and (max-width: 1100px) {
+  .mobile-chat { --chat-height: calc(var(--visual-height, 100dvh) - 56px - env(safe-area-inset-top)); }
+  .sheet-handle { height: 12px; }
+  .mobile-chat .chat-bar { height: 44px; }
+}
 </style>

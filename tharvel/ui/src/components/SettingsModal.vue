@@ -88,11 +88,11 @@ onMounted(() => loadModels());
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('close')">
-    <div class="modal">
+  <div class="overlay dialog-shell" @click.self="emit('close')">
+    <div class="modal dialog-card" v-dialog="true" role="dialog" aria-modal="true" aria-label="Impostazioni">
       <header class="modal-head">
         <h2>Impostazioni</h2>
-        <button class="close" @click="emit('close')">
+        <button class="close" data-dialog-close aria-label="Chiudi impostazioni" @click="emit('close')">
           <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3 L11 11 M11 3 L3 11" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
         </button>
       </header>
@@ -481,5 +481,14 @@ onMounted(() => loadModels());
 .cm-feedback.err {
   background: var(--error-bg);
   color: var(--error-text);
+}
+@media (max-width: 1100px) {
+  .prov-head { flex-wrap: wrap; gap: 8px; }
+  .prov-text { min-width: 0; }
+  .prov-head .status-pill { margin-left: 44px; }
+  .prov-card { padding: 10px; }
+  .cm-row { flex-direction: column; }
+  .cm-actions, .cm-list li { flex-wrap: wrap; }
+  .cm-id { overflow-wrap: anywhere; }
 }
 </style>

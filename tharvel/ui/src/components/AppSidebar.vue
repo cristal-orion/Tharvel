@@ -26,6 +26,7 @@ const props = defineProps<{
   sitesLoading: boolean;
   historyNonce: number;
   collapsed: boolean;
+  compact?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -105,7 +106,7 @@ const toggle = (path: string, current: string[]) => {
     <header class="sidebar-top">
       <button
         class="brand"
-        :title="collapsed ? 'Espandi sidebar' : 'Comprimi sidebar'"
+        :title="compact ? 'Chiudi strumenti' : collapsed ? 'Espandi sidebar' : 'Comprimi sidebar'"
         @click="emit('toggle-collapse')"
       >
         <img
@@ -124,11 +125,13 @@ const toggle = (path: string, current: string[]) => {
       </button>
       <button
         class="collapse-btn"
-        :title="collapsed ? 'Espandi sidebar' : 'Comprimi sidebar'"
+        data-dialog-close
+        :aria-label="compact ? 'Chiudi strumenti' : collapsed ? 'Espandi sidebar' : 'Comprimi sidebar'"
+        :title="compact ? 'Chiudi strumenti' : collapsed ? 'Espandi sidebar' : 'Comprimi sidebar'"
         @click="emit('toggle-collapse')"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path :d="collapsed ? 'M9 6 L15 12 L9 18' : 'M15 6 L9 12 L15 18'" />
+          <path :d="compact ? 'M6 6 L18 18 M18 6 L6 18' : collapsed ? 'M9 6 L15 12 L9 18' : 'M15 6 L9 12 L15 18'" />
         </svg>
       </button>
     </header>
@@ -955,4 +958,24 @@ const toggle = (path: string, current: string[]) => {
 }
 .footer-actions.rail .menu-btn .menu-label,
 .footer-actions.rail .menu-btn .menu-value { display: none; }
+@media (max-width: 1100px) {
+  .sidebar { width: 100% !important; min-width: 0; overflow-y: auto; }
+  .resize-handle { display: none; }
+  .sidebar-top, .sidebar-bottom { flex-shrink: 0; }
+  .sidebar-body { min-height: 100px; }
+  .brand-img { height: 30px; max-width: 150px; object-fit: contain; }
+  .collapse-btn, .row-action, .file-menu-btn, .section-action { min-width: 44px; min-height: 44px; opacity: 1; }
+  .section-header, .project-row, .menu-btn, .fm-item, .file-label { min-height: 44px; }
+  .project-row-wrap { display: flex; align-items: center; }
+  .project-row { min-width: 0; flex: 1; }
+  .site-slug { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .site-fw { display: none; }
+  .row-actions { position: static; transform: none; }
+  .footer-actions { flex-direction: row; flex-wrap: wrap; }
+  .menu-btn { flex: 1; width: auto; justify-content: center; padding: 8px; }
+  .menu-label { flex: none; }
+  .menu-value { display: none; }
+  .file-row input[type="checkbox"] { width: 20px; height: 20px; flex-shrink: 0; }
+  .file-menu { max-width: calc(100vw - 60px); }
+}
 </style>

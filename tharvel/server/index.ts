@@ -698,6 +698,7 @@ app.delete('/api/admin/models/custom/:provider/:modelId', requireAuth, requireAd
 // includono già lo snippet (es. build Astro). Caricato una volta sola al boot.
 import { readFileSync, existsSync } from 'node:fs';
 const THARVEL_OVERLAY = readFileSync(path.resolve(__dirname, 'overlay.html'), 'utf-8');
+const THARVEL_POINTER = readFileSync(path.resolve(__dirname, 'preview-pointer.html'), 'utf-8');
 const PREVIEW_BOOTSTRAP = readFileSync(path.resolve(__dirname, 'preview-bootstrap.html'), 'utf-8');
 
 // Rotta che la pagina avrebbe sul dominio del cliente, cioè quello che il router
@@ -750,18 +751,18 @@ function rewriteHtmlForTenant(html: string, slug: string, route: string): string
   const prefix = `${BASE_PATH}/site/${slug}`;
   // Host fittizio: di questa URL usiamo solo path/search/hash.
   const base = new URL(route, 'http://tharvel.invalid');
-  return html.replace(/\b(href|src)="([^"]*)"/gi, (full, attr: string, value: string) => {
+  return html.replace(/\b(href|src)=(["'])(.*?)\2/gi, (full, attr: string, quote: string, value: string) => {
     const mapped = mapTenantUrl(value, prefix, base);
-    return mapped === null ? full : `${attr}="${mapped}"`;
+    return mapped === null ? full : `${attr}=${quote}${mapped}${quote}`;
   });
 }
 
 // Inietta il bootstrap della preview (riallineamento rotta + report al pannello)
 // come primo figlio di <head>: deve girare prima di qualunque script del sito.
-function injectPreviewBootstrap(html: string, slug: string, route: string): string {
+function injectPreviewBootstrap(html: string, slug: string, route: string, virtualizeRoute = true): string {
   if (html.includes('__tharvelPreviewBootstrapped')) return html;
-  const script = PREVIEW_BOOTSTRAP.replace(/__THARVEL_(PREFIX|ROUTE)__/g, (_m, key: string) =>
-    JSON.stringify(key === 'PREFIX' ? `${BASE_PATH}/site/${slug}` : route),
+  const script = PREVIEW_BOOTSTRAP.replace(/__THARVEL_(PREFIX|ROUTE|VIRTUALIZE_ROUTE)__/g, (_m, key: string) =>
+    JSON.stringify(key === 'PREFIX' ? `${BASE_PATH}/site/${slug}` : key === 'ROUTE' ? route : virtualizeRoute),
   );
   const head = html.match(/<head[^>]*>/i);
   if (head) return html.replace(head[0], () => `${head[0]}\n${script}`);
@@ -771,13 +772,19 @@ function injectPreviewBootstrap(html: string, slug: string, route: string): stri
 // Inietta l'overlay Tharvel prima di </body>. Idempotente: se per caso lo script
 // è già presente (siti Tharvel-aware tipo demo) lo skippa.
 function injectOverlay(html: string): string {
-  if (html.includes('THARVEL_ELEMENT_SELECTED')) return html;
-  return html.replace(/<\/body>/i, `${THARVEL_OVERLAY}\n</body>`);
+  // Always install the touch bridge, even when a legacy pointer is embedded.
+  // It runs first in the capture phase so Alt-click is not handled twice.
+  if (!html.includes('data-tharvel-pointer="2"')) {
+    const head = html.match(/<head[^>]*>/i);
+    html = head ? html.replace(head[0], () => `${head[0]}\n${THARVEL_POINTER}`) : `${THARVEL_POINTER}\n${html}`;
+  }
+  if (html.includes('__tharvelAssetRewriteInstalled')) return html;
+  return /<\/body>/i.test(html) ? html.replace(/<\/body>/i, () => `${THARVEL_OVERLAY}\n</body>`) : html + THARVEL_OVERLAY;
 }
 
 // Static serve scoped per tenant: /site/<slug>/... → cwd del sito risolto via DB.
 // Per Astro: HTML viene riscritto al volo (href/src + overlay). Asset → static puro.
-// Per html: tutto static (i siti Tharvel-aware hanno già lo script inline).
+// Anche gli HTML legacy ricevono il bridge touch; gli asset restano statici.
 // Mount a root: il proxy strippa BASE_PATH prima di arrivare qui.
 // Strato 4: richiede auth + per role=client il slug DEVE coincidere con user.slug.
 // (Senza questo check un client autenticato potrebbe visualizzare la preview di
@@ -800,7 +807,7 @@ app.use('/site/:slug', requireAuth, async (req, res, next) => {
   // Vite genera un solo index.html in dist/, ma gli `href`/`src` interni sono
   // assoluti (`/favicon.svg`, `/assets/...`) → senza rewrite escono dal namespace
   // /tharveladmin/site/<slug>/ e tornano 404.
-  if (site.framework === 'astro' || site.framework === 'vite') {
+  if (site.framework === 'astro' || site.framework === 'vite' || site.framework === 'html') {
     const reqPath = req.path;
     // Richieste "pagina": root, trailing slash, *.html, oppure path senza estensione
     // (es. /jose, /tenuta — Astro build.format 'directory'). Senza questo ramo i link
@@ -839,7 +846,7 @@ app.use('/site/:slug', requireAuth, async (req, res, next) => {
         try {
           let html = await fs.readFile(resolved, 'utf-8');
           html = rewriteHtmlForTenant(html, slug, route);
-          html = injectPreviewBootstrap(html, slug, route);
+          html = injectPreviewBootstrap(html, slug, route, site.framework !== 'html');
           html = injectOverlay(html);
           res.set('Content-Type', 'text/html; charset=utf-8');
           res.set('Cache-Control', 'no-store');

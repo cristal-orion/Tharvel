@@ -37,7 +37,6 @@ async function onSubmit() {
           type="email"
           required
           autocomplete="email"
-          autofocus
           :disabled="submitting"
           placeholder="tu@dominio.it"
         />
@@ -65,6 +64,9 @@ async function onSubmit() {
 <style scoped>
 .login-shell {
   min-height: 100vh;
+  min-height: 100dvh;
+  height: 100%;
+  overflow-y: auto;
   display: grid;
   place-items: center;
   background: var(--bg-soft);
@@ -144,5 +146,11 @@ button[type='submit']:hover:not(:disabled) {
 button[type='submit']:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+@media (max-width: 1100px) {
+  .login-shell { min-height: 0; height: var(--visual-height, 100dvh); padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); align-items: safe center; }
+  .login-card { padding: 24px 20px; }
+  label input { font-size: 16px; min-height: 44px; }
+  button[type='submit'] { min-height: 44px; }
 }
 </style>

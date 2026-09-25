@@ -92,6 +92,7 @@
   // notificare il widget parent via postMessage(THARVEL_ELEMENT_SELECTED).
   // Iniettato dal server Tharvel nei siti che non includono già lo snippet (es. build Astro).
   (function () {
+    if (window.__tharvelPointerV2) return;
     if (window.__tharvelOverlayInstalled) return;
     window.__tharvelOverlayInstalled = true;
 

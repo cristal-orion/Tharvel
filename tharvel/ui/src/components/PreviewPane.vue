@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import type { SelectedElement } from '../composables/useTharvelSession';
 import { buildSiteBase } from '../site';
 import EmptyState from './EmptyState.vue';
@@ -15,6 +15,8 @@ const props = defineProps<{
   chatHidden: boolean;
   isConnected: boolean;
   pendingChanges: number;
+  compact: boolean;
+  isProcessing: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -25,6 +27,10 @@ const emit = defineEmits<{
   (e: 'reload-preview'): void;
   (e: 'navigate', path: string): void;
   (e: 'upload-asset', file: File): void;
+  (e: 'open-tools'): void;
+  (e: 'inspect-start'): void;
+  (e: 'select-element', element: SelectedElement): void;
+  (e: 'route-changed', path: string): void;
 }>();
 
 // Drag&drop sulla preview = upload come asset del sito (assets/ o public/).
@@ -48,8 +54,63 @@ function onDrop(e: DragEvent) {
   for (const f of Array.from(files)) emit('upload-asset', f);
 }
 
-type Device = 'desktop' | 'tablet' | 'mobile';
-const device = ref<Device>('desktop');
+type Device = 'fit' | 'desktop' | 'tablet' | 'mobile';
+const device = ref<Device>('fit');
+const optionsOpen = ref(false);
+const inspecting = ref(false);
+const iframe = ref<HTMLIFrameElement | null>(null);
+const stage = ref<HTMLElement | null>(null);
+const stageSize = ref({ width: 0, height: 0 });
+const deviceLabels: Record<Device, string> = { fit: 'Adatta allo schermo', desktop: 'Desktop · 1280 px', tablet: 'Tablet · 780 px', mobile: 'Mobile · 390 px' };
+const frameWidth = computed(() => device.value === 'fit' ? stageSize.value.width : { desktop: 1280, tablet: 780, mobile: 390 }[device.value]);
+const frameScale = computed(() => frameWidth.value ? Math.min(1, stageSize.value.width / frameWidth.value) : 1);
+const frameStyle = computed(() => ({
+  width: frameWidth.value ? `${frameWidth.value}px` : '100%',
+  height: frameScale.value ? `${stageSize.value.height / frameScale.value}px` : '100%',
+  transform: `scale(${frameScale.value})`,
+}));
+
+function postToPreview(type: string, extra = {}) {
+  iframe.value?.contentWindow?.postMessage({ type, ...extra }, new URL(iframeSrc.value).origin);
+}
+function toggleInspect() {
+  inspecting.value = !inspecting.value;
+  if (inspecting.value) emit('inspect-start');
+}
+watch(inspecting, enabled => postToPreview('THARVEL_INSPECT_MODE', { enabled }));
+watch(() => props.selectedElement, (element) => { if (!element) postToPreview('THARVEL_CLEAR_SELECTION'); });
+function onPreviewMessage(event: MessageEvent) {
+  if (event.source !== iframe.value?.contentWindow || event.origin !== new URL(iframeSrc.value).origin) return;
+  const data = event.data;
+  if (data?.type === 'THARVEL_POINTER_READY') postToPreview('THARVEL_INSPECT_MODE', { enabled: inspecting.value });
+  if (data?.type === 'THARVEL_ELEMENT_SELECTED') {
+    const info = data.info;
+    if (!info || !['tag', 'id', 'classes', 'text', 'xpath'].every(key => typeof info[key] === 'string')) return;
+    emit('select-element', info);
+    inspecting.value = false;
+  }
+  if (data?.type === 'THARVEL_ROUTE_CHANGED' && typeof data.path === 'string') emit('route-changed', data.path);
+}
+function onFrameLoad() {
+  postToPreview('THARVEL_INSPECT_MODE', { enabled: inspecting.value });
+}
+let observer: ResizeObserver | undefined;
+let resizeFrame = 0;
+onMounted(() => {
+  window.addEventListener('message', onPreviewMessage);
+  observer = new ResizeObserver(([entry]) => {
+    if (!entry) return;
+    // Updating the scaled iframe during observer delivery can cause WebKit
+    // resize loops while desktop panels animate. Commit once in the next frame.
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(() => {
+      stageSize.value = { width: entry.contentRect.width, height: entry.contentRect.height };
+    });
+  });
+  if (stage.value) observer.observe(stage.value);
+});
+onUnmounted(() => { observer?.disconnect(); cancelAnimationFrame(resizeFrame); window.removeEventListener('message', onPreviewMessage); clearTimeout(graceTimer); });
+watch(() => props.compact, () => { optionsOpen.value = false; });
 
 const iframeSrc = computed(() => {
   const p = props.previewPath || '/';
@@ -70,25 +131,24 @@ watch(
   () => { pathDraft.value = '/'; },
 );
 
-const widths: Record<Device, string> = {
-  desktop: '100%',
-  tablet: '780px',
-  mobile: '390px',
-};
-
 // Grace period iniziale: alla prima apertura non sappiamo ancora se il backend
 // risponderà, quindi diamo 2s prima di considerare "preview rotta". Senza
 // questo, l'utente vedrebbe l'overlay di errore lampeggiare ogni volta.
 const grace = ref(true);
+let graceTimer: ReturnType<typeof setTimeout>;
+function resetGrace(delay: number) {
+  grace.value = true;
+  clearTimeout(graceTimer);
+  graceTimer = setTimeout(() => { grace.value = false; }, delay);
+}
 onMounted(() => {
-  setTimeout(() => { grace.value = false; }, 2000);
+  resetGrace(2000);
 });
 
 // Quando l'utente clicca "Riprova" tentiamo sia la WS sia un reload dell'iframe.
 // Il grace ricomincia per evitare flash-error mentre il backend ri-risponde.
 function retry() {
-  grace.value = true;
-  setTimeout(() => { grace.value = false; }, 1500);
+  resetGrace(1500);
   emit('reconnect');
   emit('reload-preview');
 }
@@ -107,8 +167,9 @@ const detailsOpen = ref(false);
 watch(
   () => props.slug,
   () => {
-    grace.value = true;
-    setTimeout(() => { grace.value = false; }, 1500);
+    resetGrace(1500);
+    inspecting.value = false;
+    optionsOpen.value = false;
   },
 );
 </script>
@@ -116,13 +177,28 @@ watch(
 <template>
   <main
     class="preview"
-    :class="{ dragging }"
+    :class="{ dragging, compact }"
     @dragenter.prevent="onDragEnter"
     @dragover.prevent
     @dragleave.prevent="onDragLeave"
     @drop.prevent="onDrop"
   >
-    <header class="preview-bar">
+    <header v-if="compact" class="mobile-toolbar" :inert="optionsOpen">
+      <button class="mobile-tool" @click="emit('open-tools')" aria-label="Apri strumenti" aria-controls="tharvel-tools">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+      </button>
+      <button class="mobile-site" @click="optionsOpen = true" aria-label="Opzioni anteprima">
+        <span class="mobile-site-name">{{ slug }}</span>
+        <span class="mobile-site-status" :class="{ online: isConnected }">{{ isConnected ? '● Live' : '○ Offline' }} · {{ currentPath || '/' }}</span>
+      </button>
+      <button class="mobile-tool" :class="{ selected: inspecting }" :aria-pressed="inspecting" @click="toggleInspect" :aria-label="inspecting ? 'Annulla selezione' : 'Seleziona elemento'">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3H3v6M15 3h6v6M3 15v6h6M21 15v6h-6M8 8l3 10 2-5 5-2Z" /></svg>
+      </button>
+      <button class="publish mobile-publish" :class="{ pending: pendingChanges > 0 }" :disabled="pendingChanges === 0 || !isConnected || isProcessing" @click="emit('publish')">
+        Pubblica <span v-if="pendingChanges > 0" class="badge">{{ pendingChanges }}</span>
+      </button>
+    </header>
+    <header v-else class="preview-bar">
       <div class="bar-left">
         <span class="status-pill" :class="{ on: isConnected, off: !isConnected && !grace }">
           <span class="dot"></span>
@@ -151,6 +227,7 @@ watch(
       </div>
 
       <div class="device-tabs">
+        <button :class="{ active: device === 'fit' }" @click="device = 'fit'" title="Adatta allo schermo" aria-label="Adatta allo schermo">↔</button>
         <button :class="{ active: device === 'desktop' }" @click="device = 'desktop'" title="Desktop">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="4" width="18" height="12" rx="1.5" />
@@ -172,9 +249,7 @@ watch(
       </div>
 
       <div class="bar-right">
-        <span class="hint">
-          <kbd>Alt</kbd> + click per selezionare un elemento
-        </span>
+        <button class="inspect-button" :class="{ selected: inspecting }" @click="toggleInspect" :aria-pressed="inspecting" title="Seleziona un elemento (anche Alt + click)">{{ inspecting ? 'Annulla selezione' : 'Seleziona' }}</button>
         <button
           class="icon-btn"
           @click="emit('toggle-chat')"
@@ -190,7 +265,7 @@ watch(
         <button
           class="publish"
           :class="{ pending: pendingChanges > 0, disabled: pendingChanges === 0 }"
-          :disabled="pendingChanges === 0 || !isConnected"
+          :disabled="pendingChanges === 0 || !isConnected || isProcessing"
           @click="emit('publish')"
           :title="pendingChanges === 0
             ? 'Nessuna modifica da pubblicare'
@@ -205,10 +280,18 @@ watch(
       </div>
     </header>
 
-    <div class="preview-stage">
-      <div class="frame-wrap" :style="{ maxWidth: widths[device] }">
+    <div v-if="inspecting" class="inspect-notice" role="status">
+      <span>Tocca un elemento del sito da modificare</span>
+      <button @click="inspecting = false">Annulla</button>
+    </div>
+    <div class="preview-stage" ref="stage" :inert="optionsOpen">
+      <div class="frame-wrap" :style="{ width: `${frameWidth * frameScale}px` }">
         <iframe
+          ref="iframe"
           :src="iframeSrc"
+          :style="frameStyle"
+          @load="onFrameLoad"
+          title="Anteprima del sito"
           class="frame"
           frameborder="0"
         />
@@ -255,6 +338,25 @@ watch(
       </div>
     </div>
 
+    <div v-if="optionsOpen" class="preview-options-shell dialog-shell" @click.self="optionsOpen = false">
+      <section class="preview-options dialog-card" v-dialog="true" role="dialog" aria-modal="true" aria-label="Opzioni anteprima">
+        <header><h2>Anteprima</h2><button data-dialog-close aria-label="Chiudi opzioni anteprima" @click="optionsOpen = false">×</button></header>
+        <p class="options-site">{{ slug }}</p>
+        <form @submit.prevent="emit('navigate', pathDraft); optionsOpen = false">
+          <label for="mobile-path">Pagina del sito</label>
+          <div class="options-path"><input id="mobile-path" v-model="pathDraft" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="/" /><button type="submit">Vai</button></div>
+        </form>
+        <label for="preview-device">Dimensioni anteprima</label>
+        <select id="preview-device" v-model="device"><option v-for="(label, key) in deviceLabels" :key="key" :value="key">{{ label }}</option></select>
+        <p v-if="device !== 'fit'" class="options-hint">Vista {{ frameWidth }} px, ridotta al {{ Math.round(frameScale * 100) }}% per entrare nello schermo.</p>
+        <div class="options-actions">
+          <button @click="emit('reload-preview'); optionsOpen = false">Ricarica pagina</button>
+          <button @click="openInTab">Apri in nuova scheda</button>
+          <button v-if="!isConnected" @click="retry(); optionsOpen = false">Riconnetti</button>
+        </div>
+      </section>
+    </div>
+
     <transition name="overlay">
       <div v-if="dragging" class="asset-dropzone">
         <div class="asset-drop-card">
@@ -286,6 +388,7 @@ watch(
 
 <style scoped>
 .preview {
+  min-height: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -295,6 +398,7 @@ watch(
 }
 
 .preview-bar {
+  flex-shrink: 0;
   height: 48px;
   display: flex;
   align-items: center;
@@ -575,6 +679,7 @@ kbd {
 .icon-btn.sm { width: 26px; height: 26px; flex-shrink: 0; }
 
 .preview-stage {
+  min-height: 0;
   flex: 1;
   display: flex;
   justify-content: center;
@@ -583,16 +688,19 @@ kbd {
   overflow: auto;
 }
 .frame-wrap {
+  position: relative;
+  flex-shrink: 0;
   width: 100%;
   height: 100%;
   background: var(--bg);
-  border: 1px solid var(--border);
+  outline: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow-md);
   overflow: hidden;
-  transition: max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 .frame {
+  display: block;
+  transform-origin: top left;
   width: 100%;
   height: 100%;
   border: 0;
@@ -689,5 +797,43 @@ kbd {
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--text);
+}
+.inspect-button { padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); white-space: nowrap; }
+.selected { color: var(--brand); background: var(--brand-soft) !important; border-color: var(--brand); }
+.inspect-notice { position: absolute; top: 60px; left: 12px; right: 12px; z-index: 10; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 6px 10px; background: var(--accent); color: var(--on-accent); border-radius: var(--radius); box-shadow: var(--shadow-md); font-size: 12px; pointer-events: none; }
+.inspect-notice button { background: transparent; color: inherit; border: 1px solid currentColor; border-radius: 6px; padding: 8px; min-height: 36px; pointer-events: auto; }
+.mobile-toolbar { display: flex; align-items: center; gap: 4px; flex-shrink: 0; min-height: 56px; padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left)); background: var(--bg); border-bottom: 1px solid var(--border); }
+.mobile-tool { display: grid; place-items: center; min-width: 44px; height: 44px; padding: 0; border: 0; border-radius: 10px; background: transparent; }
+.mobile-site { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; min-height: 44px; justify-content: center; text-align: left; border: 0; background: transparent; padding: 4px; }
+.mobile-site-name, .mobile-site-status { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mobile-site-name { font-size: 13px; font-weight: 650; }
+.mobile-site-status { font-size: 11px; color: var(--text-mute); }
+.mobile-site-status.online { color: var(--success); }
+.mobile-publish { min-height: 40px; padding: 8px; font-size: 12px; gap: 4px; }
+.compact .preview-stage { padding: 0; overflow: hidden; }
+.compact .frame-wrap { border-radius: 0; box-shadow: none; outline: none; }
+.compact .inspect-notice { top: calc(64px + env(safe-area-inset-top)); }
+.compact .element-chip { bottom: calc(12px + env(safe-area-inset-bottom)); left: 12px; transform: none; max-width: calc(100% - 88px); border-radius: 12px; gap: 6px; padding: 4px 8px; }
+.compact .element-chip code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compact .chip-text { display: none; }
+.compact .chip-x { min-width: 36px; min-height: 36px; }
+.compact .preview-overlay { padding: 16px; overflow-y: auto; justify-content: safe center; }
+.preview-options-shell { position: fixed; inset: 0; z-index: 80; background: var(--backdrop); display: grid; place-items: center; padding: 16px; }
+.preview-options { background: var(--bg); border: 1px solid var(--border); border-radius: 18px; width: 100%; max-width: 480px; padding: 20px; overflow-y: auto; }
+.preview-options header { display: flex; align-items: center; justify-content: space-between; }
+.preview-options h2 { margin: 0; font-size: 18px; }
+.preview-options button { background: var(--bg-hover); border: 1px solid var(--border); border-radius: 8px; min-height: 44px; padding: 8px 12px; }
+.preview-options header button { font-size: 24px; min-width: 44px; }
+.options-site { overflow-wrap: anywhere; color: var(--text-soft); }
+.preview-options label { display: block; margin: 16px 0 8px; font-size: 13px; font-weight: 600; }
+.options-path { display: flex; gap: 8px; }
+.options-path input, .preview-options select { min-width: 0; width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.options-actions { display: grid; gap: 8px; margin-top: 20px; }
+.options-hint { color: var(--text-mute); font-size: 12px; }
+@media (min-width: 1101px) and (max-width: 1500px) {
+  .preview-bar { gap: 8px; padding: 0 8px; flex-wrap: wrap; height: auto; min-height: 80px; }
+  .bar-left { flex-basis: 100%; padding-top: 6px; }
+  .bar-right { padding-bottom: 6px; }
+  .inspect-notice { top: 90px; }
 }
 </style>

@@ -171,6 +171,8 @@ export function useTharvelSession(slug: Ref<string | null>) {
     }
     if (ws) {
       ws.onclose = null;
+      ws.onmessage = null;
+      ws.onopen = null;
       ws.close();
       ws = null;
     }
@@ -185,6 +187,11 @@ export function useTharvelSession(slug: Ref<string | null>) {
     ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
     ws.onclose = () => {
       isConnected.value = false;
+      if (isProcessing.value) {
+        isProcessing.value = false;
+        currentAi = '';
+        messages.value.push({ role: 'system', content: 'Connessione interrotta durante la richiesta. Controlla anteprima e storico prima di ripeterla: il risultato potrebbe essere parziale.' });
+      }
       if (shouldReconnect) reconnectTimer = setTimeout(connect, 3000);
     };
     ws.onerror = () => { /* swallow; close will retry */ };
@@ -196,12 +203,19 @@ export function useTharvelSession(slug: Ref<string | null>) {
     // La rotta è per-sito: /casestudy esiste su twobee, non sugli altri.
     previewPath.value = '/';
     currentPreviewPath.value = '/';
+    selectedElement.value = null;
+    selectedFiles.value = [];
+    pendingImages.value = [];
+    projectFiles.value = [];
+    messages.value = [{ role: 'system', content: 'Pronto. Scrivi una richiesta per questo sito.' }];
+    isProcessing.value = false;
+    currentAi = '';
     disconnect();
     if (next) connect();
   });
 
   const sendPrompt = (text: string) => {
-    if (isProcessing.value) return;
+    if (isProcessing.value || !isConnected.value || ws?.readyState !== WebSocket.OPEN) return;
     const hasImages = pendingImages.value.length > 0;
     if (!text.trim() && !hasImages) return;
 
@@ -238,6 +252,7 @@ export function useTharvelSession(slug: Ref<string | null>) {
   // Allegato effimero alla chat: il file vive in memoria finché l'utente non manda
   // il prompt successivo. Non tocca il filesystem del sito → non finisce in `Assets`.
   const addPendingImage = (file: File): Promise<void> => {
+    const attachmentSlug = slug.value;
     return new Promise((resolve, reject) => {
       if (!file.type.startsWith('image/')) {
         messages.value.push({
@@ -249,6 +264,7 @@ export function useTharvelSession(slug: Ref<string | null>) {
       }
       const reader = new FileReader();
       reader.onload = () => {
+        if (slug.value !== attachmentSlug) { resolve(); return; }
         const dataUrl = reader.result as string;
         const dataBase64 = dataUrl.split(',')[1] || '';
         pendingImages.value.push({
@@ -278,8 +294,10 @@ export function useTharvelSession(slug: Ref<string | null>) {
   // comprime per le immagini) il file in assets/ (html) o public/ (astro). Da usare
   // per loghi, immagini di sezione, ecc. Per screenshot effimeri usa addPendingImage.
   const uploadFile = async (file: File) => {
+    const uploadSlug = slug.value;
     const reader = new FileReader();
     reader.onload = () => {
+      if (slug.value !== uploadSlug) return;
       const base64 = (reader.result as string).split(',')[1];
       send({
         type: 'upload_file',
@@ -304,24 +322,19 @@ export function useTharvelSession(slug: Ref<string | null>) {
     if (slug.value) connect();
   };
 
-  const onPreviewMessage = (e: MessageEvent) => {
-    if (e.data?.type === 'THARVEL_ELEMENT_SELECTED') {
-      selectedElement.value = e.data.info;
-      return;
-    }
-    // Solo display + memoria per il prossimo reload: NON tocca previewPath, o ogni
-    // navigazione interna del sito farebbe ripartire l'iframe in loop.
-    if (e.data?.type === 'THARVEL_ROUTE_CHANGED' && typeof e.data.path === 'string') {
-      currentPreviewPath.value = e.data.path || '/';
-    }
+  // Do not replace a healthy socket when the phone returns from background.
+  const resume = () => {
+    if (document.visibilityState === 'visible' && (!ws || ws.readyState === WebSocket.CLOSED)) reconnect();
   };
 
   onMounted(() => {
     connect();
-    window.addEventListener('message', onPreviewMessage);
+    document.addEventListener('visibilitychange', resume);
+    window.addEventListener('online', resume);
   });
   onUnmounted(() => {
-    window.removeEventListener('message', onPreviewMessage);
+    document.removeEventListener('visibilitychange', resume);
+    window.removeEventListener('online', resume);
     disconnect();
   });
 

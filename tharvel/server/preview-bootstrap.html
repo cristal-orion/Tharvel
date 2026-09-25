@@ -35,11 +35,14 @@
 
     var PREFIX = __THARVEL_PREFIX__;
     var ROUTE = __THARVEL_ROUTE__;
+    var VIRTUALIZE_ROUTE = __THARVEL_VIRTUALIZE_ROUTE__;
     window.__THARVEL_PREFIX = PREFIX;
     window.__THARVEL_ROUTE = ROUTE;
 
     try {
-      history.replaceState(history.state, '', ROUTE + location.hash);
+      // Static HTML keeps its URL base: relative inline CSS/fetch URLs must still
+      // resolve under /site/<slug>. SPA/SSG routers need the virtual route instead.
+      if (VIRTUALIZE_ROUTE) history.replaceState(history.state, '', ROUTE + location.hash);
     } catch (e) {
       /* Se il browser rifiuta il replaceState la preview resta sul path con
          prefisso: si vede la home invece della rotta, ma non si rompe nulla. */
@@ -49,9 +52,14 @@
     // cambiare senza reload quando l'app naviga client-side (pushState).
     var notify = function () {
       try {
+        var pathname = location.pathname;
+        if (pathname === PREFIX) pathname = '/';
+        else if (pathname.indexOf(PREFIX + '/') === 0) pathname = pathname.slice(PREFIX.length);
+        var search = new URLSearchParams(location.search);
+        search.delete('_');
         window.parent.postMessage({
           type: 'THARVEL_ROUTE_CHANGED',
-          path: location.pathname + location.search + location.hash,
+          path: pathname + (search.toString() ? '?' + search.toString() : '') + location.hash,
         }, '*');
       } catch (e) {}
     };

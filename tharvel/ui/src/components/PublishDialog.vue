@@ -11,8 +11,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="overlay" @click.self="emit('close')">
-    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="pub-title">
+  <div class="overlay dialog-shell" @click.self="emit('close')">
+    <div class="dialog dialog-card" v-dialog="true" role="dialog" aria-modal="true" aria-labelledby="pub-title">
       <header class="head">
         <div class="head-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
@@ -27,7 +27,7 @@ const emit = defineEmits<{
             ancora pubblicat{{ pendingCount === 1 ? 'a' : 'e' }}.
           </p>
         </div>
-        <button class="close" @click="emit('close')" aria-label="Chiudi">
+        <button class="close" data-dialog-close @click="emit('close')" aria-label="Chiudi">
           <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3 L11 11 M11 3 L3 11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
         </button>
       </header>
