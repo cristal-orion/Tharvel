@@ -9,6 +9,7 @@
 // perché così la password che il cliente ha in mano smette di funzionare.
 import { ref, computed, onMounted } from 'vue';
 import { apiUrl } from '../site';
+import { authFetch } from '../composables/useAuth';
 import { buildHandoverMessage } from '../handover';
 
 const props = defineProps<{ slug: string }>();
@@ -34,7 +35,7 @@ async function load() {
   loading.value = true;
   errorMsg.value = null;
   try {
-    const r = await fetch(apiUrl(`/api/admin/sites/${encodeURIComponent(props.slug)}/access`), {
+    const r = await authFetch(apiUrl(`/api/admin/sites/${encodeURIComponent(props.slug)}/access`), {
       credentials: 'include',
     });
     const body = await r.json();
@@ -55,7 +56,7 @@ async function resetPassword(user: AccessUser) {
   resettingId.value = user.id;
   errorMsg.value = null;
   try {
-    const r = await fetch(
+    const r = await authFetch(
       apiUrl(`/api/admin/sites/${encodeURIComponent(props.slug)}/access/reset-password`),
       {
         method: 'POST',

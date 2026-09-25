@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { apiUrl } from '../site';
+import { authFetch } from '../composables/useAuth';
 
 interface Revision {
   id: number;
@@ -38,7 +39,7 @@ async function fetchHistory() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await fetch(apiUrl(`/api/session/${props.slug}/history`), {
+    const res = await authFetch(apiUrl(`/api/session/${props.slug}/history`), {
       credentials: 'include',
     });
     if (!res.ok) {
@@ -65,7 +66,7 @@ async function undoLast() {
   busyAction.value = 'undo';
   error.value = null;
   try {
-    const res = await fetch(apiUrl(`/api/session/${props.slug}/undo`), {
+    const res = await authFetch(apiUrl(`/api/session/${props.slug}/undo`), {
       method: 'POST',
       credentials: 'include',
     });
@@ -95,7 +96,7 @@ async function restoreTo(rev: Revision) {
   busyAction.value = `restore:${rev.id}`;
   error.value = null;
   try {
-    const res = await fetch(apiUrl(`/api/session/${props.slug}/restore/${rev.id}`), {
+    const res = await authFetch(apiUrl(`/api/session/${props.slug}/restore/${rev.id}`), {
       method: 'POST',
       credentials: 'include',
     });

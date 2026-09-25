@@ -4,6 +4,7 @@
 // modello appena aggiunto compare subito nel picker.
 import { ref } from 'vue';
 import { apiUrl } from '../site';
+import { authFetch } from './useAuth';
 
 export interface CustomModel {
   provider: string;
@@ -34,7 +35,7 @@ export function useModels() {
   async function loadModels(force = false): Promise<void> {
     if (loaded && !force) return;
     try {
-      const res = await fetch(apiUrl('/api/models'), { credentials: 'include' });
+      const res = await authFetch(apiUrl('/api/models'), { credentials: 'include' });
       if (res.ok) {
         const body = await readJson(res);
         customModels.value = Array.isArray(body.models) ? body.models : [];
@@ -54,7 +55,7 @@ export function useModels() {
     payload: ModelActionPayload,
   ): Promise<{ ok: true; sample: string } | { ok: false; error: string }> {
     try {
-      const res = await fetch(apiUrl('/api/admin/models/test'), {
+      const res = await authFetch(apiUrl('/api/admin/models/test'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -71,7 +72,7 @@ export function useModels() {
 
   async function addModel(payload: ModelActionPayload): Promise<ActionResult<CustomModel>> {
     try {
-      const res = await fetch(apiUrl('/api/admin/models/custom'), {
+      const res = await authFetch(apiUrl('/api/admin/models/custom'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -91,7 +92,7 @@ export function useModels() {
 
   async function deleteModel(provider: string, id: string): Promise<ActionResult> {
     try {
-      const res = await fetch(
+      const res = await authFetch(
         apiUrl(`/api/admin/models/custom/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`),
         { method: 'DELETE', credentials: 'include' },
       );

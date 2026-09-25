@@ -35,6 +35,36 @@ const activeSlug = computed<string | null>(() => {
 const DEV_BYPASS =
   import.meta.env.DEV && import.meta.env.VITE_DEV_BYPASS_AUTH === '1';
 
+function expireSession(): void {
+  if (!user.value) return;
+  user.value = null;
+  adminActiveSlug.value = null;
+  loading.value = false;
+  error.value = 'La sessione è scaduta o non è più valida. Accedi di nuovo per continuare.';
+}
+
+// Every authenticated API request handles expiry consistently. A late 401 from
+// an old session must not sign out an account that has logged in in the meantime.
+export async function authFetch(input: RequestInfo | URL, options?: RequestInit): Promise<Response> {
+  const requestUser = user.value;
+  const response = await fetch(input, options);
+  if (response.status === 401 && requestUser && user.value === requestUser) expireSession();
+  return response;
+}
+
+let revalidation: Promise<void> | null = null;
+function revalidate(): Promise<void> {
+  if (!user.value || DEV_BYPASS) return Promise.resolve();
+  if (!revalidation) {
+    revalidation = authFetch(apiUrl('/api/me'), { credentials: 'include' })
+      .then(() => {})
+      // A network failure is not an expired login; keep normal offline recovery.
+      .catch(() => {})
+      .finally(() => { revalidation = null; });
+  }
+  return revalidation;
+}
+
 async function init(): Promise<void> {
   loading.value = true;
   if (DEV_BYPASS) {
@@ -89,6 +119,7 @@ async function logout(): Promise<void> {
   await fetch(apiUrl('/api/logout'), { method: 'POST', credentials: 'include' });
   user.value = null;
   adminActiveSlug.value = null;
+  error.value = null;
 }
 
 function setAdminActiveSlug(slug: string): void {
@@ -107,5 +138,7 @@ export function useAuth() {
     login,
     logout,
     setAdminActiveSlug,
+    expireSession,
+    revalidate,
   };
 }

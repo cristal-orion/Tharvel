@@ -1,5 +1,6 @@
 import { ref, watch, computed, type Ref } from 'vue';
 import { apiUrl } from '../site';
+import { authFetch } from './useAuth';
 
 export interface Revision {
   id: number;
@@ -30,7 +31,7 @@ export function useRevisions(slug: Ref<string | null>, nonce: Ref<number>) {
     loading.value = true;
     error.value = null;
     try {
-      const res = await fetch(apiUrl(`/api/session/${slug.value}/history`), {
+      const res = await authFetch(apiUrl(`/api/session/${slug.value}/history`), {
         credentials: 'include',
       });
       if (!res.ok) {

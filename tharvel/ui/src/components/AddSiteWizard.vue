@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { apiUrl } from '../site';
+import { authFetch } from '../composables/useAuth';
 import { buildHandoverMessage } from '../handover';
 
 // Wizard 3 step:
@@ -89,7 +90,7 @@ async function doLookup() {
   lookupBusy.value = true;
   errorMsg.value = null;
   try {
-    const r = await fetch(
+    const r = await authFetch(
       apiUrl(`/api/admin/coolify-app-by-repo?url=${encodeURIComponent(repoInput.value.trim())}`),
       { credentials: 'include' },
     );
@@ -121,7 +122,7 @@ async function doOnboard() {
   step.value = 'running';
   errorMsg.value = null;
   try {
-    const r = await fetch(apiUrl('/api/admin/onboard-site'), {
+    const r = await authFetch(apiUrl('/api/admin/onboard-site'), {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },

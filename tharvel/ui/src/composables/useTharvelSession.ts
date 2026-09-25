@@ -1,5 +1,6 @@
 import { ref, reactive, onMounted, onUnmounted, watch, type Ref } from 'vue';
 import { buildWsUrl, BASE_PATH, apiUrl } from '../site';
+import { authFetch, useAuth } from './useAuth';
 
 export type Role = 'user' | 'ai' | 'system';
 export interface ChatAttachment {
@@ -32,6 +33,7 @@ export interface PendingImage {
 }
 
 export function useTharvelSession(slug: Ref<string | null>) {
+  const { expireSession } = useAuth();
   const isConnected = ref(false);
   const isProcessing = ref(false);
   const messages = ref<ChatMessage[]>([
@@ -198,8 +200,15 @@ export function useTharvelSession(slug: Ref<string | null>) {
     ws = new WebSocket(buildWsUrl(slug.value));
     ws.onopen = () => { isConnected.value = true; };
     ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       isConnected.value = false;
+      if (event.code === 1008 && event.reason === 'unauthorized') {
+        // This is a rejected login, not a server outage. Stop the retry loop;
+        // App.vue will unmount this session and display the login form.
+        shouldReconnect = false;
+        expireSession();
+        return;
+      }
       if (isChangingModel.value) modelError.value = 'Connessione interrotta: la scelta verrà verificata alla riconnessione.';
       isChangingModel.value = false;
       if (isProcessing.value) {
@@ -310,7 +319,7 @@ export function useTharvelSession(slug: Ref<string | null>) {
       // A failed engine boot has no WS command handler yet. Let the admin repair
       // the global setting via the authenticated API, then create a new session.
       try {
-        const res = await fetch(apiUrl('/api/admin/models/default'), {
+        const res = await authFetch(apiUrl('/api/admin/models/default'), {
           method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model }),
         });

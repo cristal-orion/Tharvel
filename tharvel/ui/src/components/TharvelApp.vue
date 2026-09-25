@@ -11,7 +11,7 @@ import PublishDialog from './PublishDialog.vue';
 import MobileChatBubble from './MobileChatBubble.vue';
 import { useMobileLayout } from '../composables/useMobileLayout';
 import { useTharvelSession } from '../composables/useTharvelSession';
-import { useAuth } from '../composables/useAuth';
+import { authFetch, useAuth } from '../composables/useAuth';
 import { useRevisions } from '../composables/useRevisions';
 import { apiUrl } from '../site';
 
@@ -84,7 +84,7 @@ async function loadSitesForAdmin() {
       if (!activeSlug.value) setAdminActiveSlug('demo-site');
       return;
     }
-    const res = await fetch(apiUrl('/api/sites'), { credentials: 'include' });
+    const res = await authFetch(apiUrl('/api/sites'), { credentials: 'include' });
     if (res.ok) {
       const body = await res.json();
       adminSites.value = body.sites;

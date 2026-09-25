@@ -19,12 +19,13 @@ async function setup(page: Page, role: 'admin' | 'client' = 'admin', loggedIn = 
   await page.route('**/api/**', async route => {
     const url = new URL(route.request().url());
     requests.push(`${route.request().method()} ${url.pathname}`);
+    if (!loggedIn && url.pathname !== '/api/login') return route.fulfill({ status: 401, json: { error: 'unauthorized' } });
     const user = { id: 1, email: `${role}@example.test`, role, slug: role === 'client' ? 'demo-site' : null };
     let body: unknown = {};
     if (url.pathname === '/api/me') {
       if (!loggedIn) return route.fulfill({ status: 401, json: {} });
       body = { user };
-    } else if (url.pathname === '/api/login') body = { user };
+    } else if (url.pathname === '/api/login') { loggedIn = true; body = { user }; }
     else if (url.pathname === '/api/admin/models/default' && route.request().method() === 'PUT') {
       initialModel = route.request().postDataJSON().model;
       body = { model: initialModel };
@@ -73,6 +74,9 @@ async function setup(page: Page, role: 'admin' | 'client' = 'admin', loggedIn = 
     disconnect() { socket.close({ code: 1011, reason: 'test disconnect' }); },
     confirmModel(model: string) { initialModel = model; socket.send(JSON.stringify({ type: 'model_active', model })); },
     rejectModel(message: string) { socket.send(JSON.stringify({ type: 'model_error', message })); },
+    expireSession() { loggedIn = false; socket.close({ code: 1008, reason: 'unauthorized' }); },
+    invalidateCookie() { loggedIn = false; },
+    historyChanged() { socket.send(JSON.stringify({ type: 'history_updated' })); },
   };
 }
 
@@ -361,6 +365,57 @@ test('admin can repair an unavailable default even when the AI session cannot bo
   await expect.poll(() => app.socketCount).toBe(2);
   await expect(page.locator('.trigger .model')).toHaveText('GPT-5.5');
   await expect(page.getByRole('alert')).toHaveCount(0);
+  expect(app.errors).toEqual([]);
+});
+
+for (const role of ['admin', 'client'] as const) {
+  test(`${role}: expired WebSocket session returns to login without reconnect loops`, async ({ page }) => {
+    await page.clock.install();
+    const app = await setup(page, role);
+    await ready(page);
+    app.expireSession();
+    await expect(page.getByRole('heading', { name: 'Accedi', exact: true })).toBeVisible();
+    await expect(page.locator('.err')).toContainText('La sessione è scaduta');
+    await expect(page.locator('.app')).toHaveCount(0);
+    await page.clock.fastForward(10000);
+    expect(app.socketCount).toBe(1);
+    await page.getByLabel('Email', { exact: true }).fill(`${role}@example.test`);
+    await page.getByLabel('Password', { exact: true }).fill('test-only');
+    await page.getByRole('button', { name: 'Accedi', exact: true }).click();
+    await ready(page);
+    expect(app.socketCount).toBe(2);
+    expect(app.errors).toEqual([]);
+  });
+}
+
+test('a history API 401 signs out instead of leaving the editor offline', async ({ page }) => {
+  const app = await setup(page);
+  await ready(page);
+  app.invalidateCookie();
+  app.historyChanged();
+  await expect(page.getByRole('heading', { name: 'Accedi', exact: true })).toBeVisible();
+  await expect(page.locator('.err')).toContainText('Accedi di nuovo');
+  expect(app.errors).toEqual([]);
+});
+
+test('returning to a tab revalidates an expired session', async ({ page }) => {
+  const app = await setup(page);
+  await ready(page);
+  app.invalidateCookie();
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.getByRole('heading', { name: 'Accedi', exact: true })).toBeVisible();
+  expect(app.errors).toEqual([]);
+});
+
+test('network failure during session revalidation does not sign the user out', async ({ page }) => {
+  const app = await setup(page);
+  await ready(page);
+  await page.route('**/api/me', route => route.abort());
+  const failed = page.waitForEvent('requestfailed', request => request.url().endsWith('/api/me'));
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await failed;
+  await expect(page.locator('.app')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Accedi', exact: true })).toHaveCount(0);
   expect(app.errors).toEqual([]);
 });
 

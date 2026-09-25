@@ -11,6 +11,7 @@
 //  - Online   : le pubblicazioni, con ripristino a una precedente.
 import { ref, computed, onMounted } from 'vue';
 import { apiUrl } from '../site';
+import { authFetch } from '../composables/useAuth';
 
 const props = defineProps<{ slug: string }>();
 const emit = defineEmits<{ (e: 'close'): void }>();
@@ -54,7 +55,7 @@ const rollingBackId = ref<number | null>(null);
 const rollbackMsg = ref<string | null>(null);
 
 async function getJson(path: string) {
-  const r = await fetch(apiUrl(path), { credentials: 'include' });
+  const r = await authFetch(apiUrl(path), { credentials: 'include' });
   const body = await r.json();
   if (!r.ok) throw new Error(body?.error ?? `HTTP ${r.status}`);
   return body;
@@ -88,7 +89,7 @@ async function rollback(row: PublishRow) {
   rollbackMsg.value = null;
   errorMsg.value = null;
   try {
-    const r = await fetch(
+    const r = await authFetch(
       apiUrl(`/api/admin/sites/${encodeURIComponent(props.slug)}/rollback/${row.id}`),
       { method: 'POST', credentials: 'include' },
     );
