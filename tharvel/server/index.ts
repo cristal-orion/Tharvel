@@ -1139,6 +1139,10 @@ wss.on('connection', async (ws, req) => {
       execute: async (_toolCallId, params) => {
         try {
           const result = await publishSite(site, SITES_ROOT, params.commitMessage);
+          // Il publish archivia i turn pendenti: senza questo evento la UI non
+          // rifetcha lo storico (l'auto-commit di fine turn trova il tree pulito
+          // e non lo emette) e il contatore sul bottone Pubblica resta fermo.
+          if (result.ok) ws.send(JSON.stringify({ type: 'history_updated' }));
           return {
             content: [{ type: "text", text: result.message }],
             details: {

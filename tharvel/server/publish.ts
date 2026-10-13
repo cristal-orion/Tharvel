@@ -86,6 +86,9 @@ export async function publishSite(
   );
   const aheadCount = diffRes.code === 0 ? parseInt(diffRes.stdout.trim(), 10) || 0 : 0;
   if (aheadCount === 0) {
+    // I turn ancora pendenti in DB sono già online: archiviali, altrimenti il
+    // contatore del bottone Pubblica resta bloccato senza modo di azzerarlo.
+    markTurnsAsSuperseded(site.id);
     return {
       ok: true,
       message: 'Nessuna modifica da pubblicare (preview allineato al remoto).',
@@ -122,6 +125,9 @@ export async function publishSite(
     // Nessun cambio? (caso teorico: preview era già allineato pur con ahead != 0)
     if (/nothing to commit/i.test(commitRes.stdout + commitRes.stderr)) {
       await run('git', ['checkout', 'preview'], { cwd });
+      // Es. modifica poi annullata con un turn successivo: preview non ha
+      // differenze nette rispetto all'online, i turn pendenti non hanno più senso.
+      markTurnsAsSuperseded(site.id);
       return {
         ok: true,
         message: 'Nessuna modifica effettiva da pubblicare.',
