@@ -161,6 +161,11 @@ export function useTharvelSession(slug: Ref<string | null>) {
       case 'history_updated':
         historyNonce.value = Date.now();
         break;
+      // Il server ha allineato il sito con GitHub (modifiche fatte fuori da
+      // Tharvel) e rigenerato l'anteprima.
+      case 'preview_updated':
+        reloadIframe();
+        break;
       case 'error':
         isProcessing.value = false;
         if (!selectedModel.value) modelError.value = data.message;

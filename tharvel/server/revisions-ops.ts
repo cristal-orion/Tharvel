@@ -45,8 +45,23 @@ export async function resetPreviewTo(cwd: string, sha: string): Promise<{ ok: bo
 
 // Rebuild del sito dopo restore. Solo per framework con build step (astro/vite).
 // Non-blocking dell'output al chiamante: ritorna ok/fallito + log breve.
-export async function rebuildSite(cwd: string, framework: 'html' | 'astro' | 'vite'): Promise<{ ok: boolean; message: string }> {
+// `installDeps`: package.json cambiato (es. allineamento da GitHub) → prima
+// `npm install`, altrimenti il build fallisce su import di pacchetti nuovi.
+export async function rebuildSite(
+  cwd: string,
+  framework: 'html' | 'astro' | 'vite',
+  opts: { installDeps?: boolean } = {},
+): Promise<{ ok: boolean; message: string }> {
   if (framework === 'html') return { ok: true, message: 'no build per html' };
+  if (opts.installDeps) {
+    // `--include=dev`: con NODE_ENV=production npm salterebbe le devDependencies
+    // che servono al build (vedi onboard-pipeline.ts).
+    const install = await run('npm', ['install', '--include=dev'], cwd);
+    if (install.code !== 0) {
+      const tail = install.stderr.split('\n').slice(-5).join('\n').trim();
+      return { ok: false, message: `npm install fallito: ${tail}` };
+    }
+  }
   const res = await run('npm', ['run', 'build'], cwd);
   if (res.code !== 0) {
     const tail = res.stderr.split('\n').slice(-5).join('\n').trim();

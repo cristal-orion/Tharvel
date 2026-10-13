@@ -23,6 +23,7 @@ import type { Site } from './db/sites.js';
 import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
 import { getBranchInfo } from './preview-branch.js';
 import { insertRevision } from './db/revisions.js';
+import { fetchUpstream } from './remote-sync.js';
 
 interface RunResult {
   code: number;
@@ -78,9 +79,9 @@ export async function rollbackToPublish(
 
   // 2) Partiamo da upstream allineato al remoto, altrimenti il push fallirebbe
   //    per non-fast-forward.
-  const fetchRes = await run('git', ['fetch', 'origin', upstream], cwd);
-  if (fetchRes.code !== 0) {
-    return { ok: false, message: `git fetch fallito: ${fetchRes.stderr.trim()}`, pushed: false };
+  const fetchRes = await fetchUpstream(site, cwd, upstream);
+  if (!fetchRes.ok) {
+    return { ok: false, message: fetchRes.message, pushed: false };
   }
   const coUp = await run('git', ['checkout', upstream], cwd);
   if (coUp.code !== 0) {

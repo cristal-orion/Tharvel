@@ -17,6 +17,7 @@ import type { Site } from './db/sites.js';
 import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
 import { ensurePreviewBranch, getBranchInfo } from './preview-branch.js';
 import { insertRevision, markTurnsAsSuperseded } from './db/revisions.js';
+import { fetchUpstream } from './remote-sync.js';
 
 interface RunResult {
   code: number;
@@ -78,7 +79,10 @@ export async function publishSite(
 
   // 3) Niente da pubblicare? Confronto preview vs upstream remoto.
   // Strategia: vediamo se preview e origin/<upstream> divergono.
-  await run('git', ['fetch', 'origin', upstream], { cwd });
+  const fetchRes = await fetchUpstream(site, cwd, upstream);
+  if (!fetchRes.ok) {
+    return { ok: false, message: `Impossibile leggere il repo remoto: ${fetchRes.message}`, pushed: false };
+  }
   const diffRes = await run(
     'git',
     ['rev-list', '--count', `origin/${upstream}..preview`],

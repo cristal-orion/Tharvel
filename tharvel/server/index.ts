@@ -30,6 +30,7 @@ import { findApplicationByRepo, getApplication, splitFqdns, pickRecommendedFqdn 
 import { onboardSite, OnboardError } from './onboard-pipeline.js';
 import { autoCommitTurn } from './auto-commit.js';
 import { ensurePreviewBranch } from './preview-branch.js';
+import { syncPreviewWithRemote } from './remote-sync.js';
 import { ensurePiSettings } from './pi-settings.js';
 import { buildAgentPrompt } from './agent-prompt.js';
 import { buildSiteContext, writeSiteContextFile } from './site-context.js';
@@ -980,6 +981,46 @@ wss.on('connection', async (ws, req) => {
     const initialChoice = getSessionModel(modelRegistry);
 
     const sitePath = resolveSiteCwd(site);
+
+    // Il sito può essere stato aggiornato su GitHub fuori da Tharvel: allinea
+    // preview PRIMA di costruire la scheda contesto, così agente e anteprima
+    // partono dall'ultima versione online senza doverlo chiedere all'agente.
+    const remoteSync = await syncPreviewWithRemote(site, sitePath);
+    console.log(`[SYNC] '${site.slug}': ${remoteSync.outcome} (${remoteSync.message})`);
+    const incomingLabel = (n: number) => `${n} modific${n === 1 ? 'a' : 'he'}`;
+    if (remoteSync.outcome === 'updated') {
+      ws.send(JSON.stringify({
+        type: 'system',
+        content: `🔄 Su GitHub c'erano ${incomingLabel(remoteSync.incoming ?? 0)} fatte fuori da Tharvel: l'anteprima è stata allineata.`,
+      }));
+      // Il build (astro/vite) può durare decine di secondi: non blocca l'avvio
+      // della sessione, la UI ricarica l'anteprima quando è pronto.
+      const syncedSite = site;
+      rebuildSite(sitePath, syncedSite.framework, { installDeps: remoteSync.depsChanged })
+        .then((r) => {
+          if (!r.ok) {
+            console.warn(`[SYNC] '${syncedSite.slug}': rebuild fallito: ${r.message}`);
+            ws.send(JSON.stringify({
+              type: 'system',
+              content: `⚠️ File allineati a GitHub, ma la rigenerazione dell'anteprima è fallita: ${r.message}`,
+            }));
+          }
+          ws.send(JSON.stringify({ type: 'preview_updated' }));
+        })
+        .catch((e) => console.error(`[SYNC] '${syncedSite.slug}': rebuild fatal:`, e));
+    } else if (remoteSync.outcome === 'blocked') {
+      ws.send(JSON.stringify({
+        type: 'system',
+        content:
+          `⚠️ Su GitHub ci sono ${incomingLabel(remoteSync.incoming ?? 0)} fatte fuori da Tharvel che non ho potuto ` +
+          `portare nell'anteprima (${remoteSync.message}). Finché non si risolve, la pubblicazione potrebbe fallire.`,
+      }));
+    } else if (remoteSync.outcome === 'failed') {
+      ws.send(JSON.stringify({
+        type: 'system',
+        content: `⚠️ Non sono riuscito a verificare se il sito su GitHub è stato aggiornato fuori da Tharvel: l'anteprima potrebbe non essere allineata.`,
+      }));
+    }
 
     // System prompt dell'agente, composto per blocchi in agent-prompt.ts (uno
     // profilo per framework + i blocchi comuni). Stava qui come tre literal
