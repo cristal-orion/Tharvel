@@ -760,24 +760,28 @@ export function buildSiteContext(input: SiteContextInput): SiteContextResult {
 // (e verificare) esattamente ciò che l'agente sa. NON deve finire nei commit del
 // cliente: esclusa via `.git/info/exclude`, che è locale al clone e — a differenza
 // di .gitignore — non è un file tracciato, quindi non sporca i diff né il publish.
+// `.tharvel/` è roba di Tharvel (scheda contesto, allegati della chat): non deve
+// mai finire nei commit del cliente, che l'auto-commit fa con `git add -A`.
+export function ensureTharvelDirExcluded(sitePath: string): void {
+  const excludePath = path.join(sitePath, '.git', 'info', 'exclude');
+  if (!fs.existsSync(path.dirname(excludePath))) return;
+  let current = '';
+  try {
+    current = fs.readFileSync(excludePath, 'utf-8');
+  } catch {
+    current = '';
+  }
+  if (!current.split('\n').some((l) => l.trim() === '.tharvel/')) {
+    fs.writeFileSync(excludePath, current + (current.endsWith('\n') || !current ? '' : '\n') + '.tharvel/\n', 'utf-8');
+  }
+}
+
 export function writeSiteContextFile(sitePath: string, markdown: string): void {
   try {
     const dir = path.join(sitePath, '.tharvel');
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, 'context.md'), markdown, 'utf-8');
-
-    const excludePath = path.join(sitePath, '.git', 'info', 'exclude');
-    if (fs.existsSync(path.dirname(excludePath))) {
-      let current = '';
-      try {
-        current = fs.readFileSync(excludePath, 'utf-8');
-      } catch {
-        current = '';
-      }
-      if (!current.split('\n').some((l) => l.trim() === '.tharvel/')) {
-        fs.writeFileSync(excludePath, current + (current.endsWith('\n') || !current ? '' : '\n') + '.tharvel/\n', 'utf-8');
-      }
-    }
+    ensureTharvelDirExcluded(sitePath);
   } catch (e) {
     console.warn('[CONTEXT] impossibile scrivere .tharvel/context.md:', e);
   }

@@ -280,8 +280,9 @@ export function useTharvelSession(slug: Ref<string | null>) {
     scrollHooks.forEach((fn) => fn());
   };
 
-  // Allegato effimero alla chat: il file vive in memoria finché l'utente non manda
-  // il prompt successivo. Non tocca il filesystem del sito → non finisce in `Assets`.
+  // Allegato alla chat: il file vive in memoria finché l'utente non manda il prompt
+  // successivo. Il server lo salva solo in `.tharvel/attachments/` (fuori da git)
+  // → non finisce in `Assets` finché l'agente non lo copia nel sito.
   const addPendingImage = (file: File): Promise<void> => {
     const attachmentSlug = slug.value;
     return new Promise((resolve, reject) => {

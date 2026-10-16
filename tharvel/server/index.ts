@@ -31,6 +31,7 @@ import { onboardSite, OnboardError } from './onboard-pipeline.js';
 import { autoCommitTurn } from './auto-commit.js';
 import { ensurePreviewBranch } from './preview-branch.js';
 import { syncPreviewWithRemote } from './remote-sync.js';
+import { saveChatAttachments } from './chat-attachments.js';
 import { ensurePiSettings } from './pi-settings.js';
 import { buildAgentPrompt } from './agent-prompt.js';
 import { buildSiteContext, writeSiteContextFile } from './site-context.js';
@@ -1522,18 +1523,19 @@ wss.on('connection', async (ws, req) => {
         await modelSelection.sync();
         reportModel();
 
-        // Immagini allegate inline al prompt: vengono passate come ImageContent[]
-        // al modello (multimodal input), senza essere salvate sul filesystem.
-        // È il canale "screenshot di riferimento", distinto dall'upload_file.
-        const images = Array.isArray(data.images)
+        // Immagini allegate inline al prompt: passate al modello come input visivo
+        // e salvate anche in .tharvel/attachments/ (vedi chat-attachments.ts), così
+        // l'agente può usarle come file nel sito. Canale distinto dall'upload_file.
+        const images: { type: 'image'; data: string; mimeType: string }[] = Array.isArray(data.images)
           ? data.images
-              .filter((img: any) => img && typeof img.fileBase64 === 'string' && typeof img.mimeType === 'string')
+              .filter((img: any) => img && typeof img.fileBase64 === 'string' && typeof img.mimeType === 'string'
+                && img.mimeType.startsWith('image/'))
               .map((img: any) => ({
                 type: 'image' as const,
                 data: img.fileBase64,
                 mimeType: img.mimeType,
               }))
-          : undefined;
+          : [];
 
         // Cattura il prompt utente per l'auto-commit a fine turn (solo il testo reale).
         currentTurnPrompt = text;
@@ -1563,12 +1565,20 @@ wss.on('connection', async (ws, req) => {
           pendingUploadNotices = [];
         }
 
-        try {
-          if (images && images.length > 0) {
-            await session.prompt(promptForAgent, images);
-          } else {
-            await session.prompt(promptForAgent);
+        if (images.length > 0) {
+          try {
+            const saved = await saveChatAttachments(sitePath, images);
+            promptForAgent = `[Sistema — le immagini allegate a questo messaggio sono salvate anche come file: ${saved.join(', ')}. Se l'utente vuole usarle nel sito, copiale in ${defaultUploadsRel}/ con un nome descrittivo e usa quella copia: .tharvel/ non viene pubblicata.]\n\n${promptForAgent}`;
+          } catch (e) {
+            // Il modello le vede comunque: senza file potrà solo descriverle.
+            console.warn(`[ATTACH] '${site.slug}': salvataggio allegati fallito:`, e);
           }
+        }
+
+        try {
+          // L'SDK vuole le immagini in `options.images`: passate come secondo
+          // argomento nudo venivano scartate e il modello non le riceveva mai.
+          await session.prompt(promptForAgent, images.length > 0 ? { images } : undefined);
         } catch (error: any) {
           ws.send(JSON.stringify({ type: 'error', message: error.message || 'Errore sconosciuto' }));
         }
