@@ -119,5 +119,9 @@ ENV NODE_ENV=production \
     GIT_AUTHOR_EMAIL="tharvel@cristal-orion.it" \
     GIT_COMMITTER_NAME="Tharvel Bot" \
     GIT_COMMITTER_EMAIL="tharvel@cristal-orion.it"
+# Modello che generate_image usa come passthrough verso image_generation. Il
+# default dell'estensione (gpt-5.5) è rifiutato dal backend Codex per gli account
+# ChatGPT ("model is not supported"); verificato che gpt-5.6-sol passa.
+ENV PI_CODEX_IMAGE_MODEL=gpt-5.6-sol
 EXPOSE 3000
 CMD ["node", "server/dist/index.js"]

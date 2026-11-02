@@ -157,12 +157,3 @@ test('custom model resolution preserves the exact provider/id and configured lim
   assert.equal(chosen.model.contextWindow, 200000);
   assert.equal(chosen.model.maxTokens, 50000);
 });
-
-test('a Codex model dropped from the SDK catalog (gpt-5.5 after Pi 1.x) still resolves', () => {
-  const catalogWithoutIt = { getModel: () => undefined };
-  const chosen = resolveModel(catalogWithoutIt, OLD)!;
-  assert.equal(chosen.key, OLD);
-  assert.equal(chosen.model.id, 'gpt-5.5');
-  assert.equal(chosen.model.provider, 'openai-codex');
-  assert.equal(resolveModel(catalogWithoutIt, 'openai-codex/gpt-4-mai-esistito'), null);
-});

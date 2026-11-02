@@ -7,15 +7,6 @@ import { buildCodexModel } from './model-testing.js';
 type Registry = Pick<ModelRuntime, 'getModel'>;
 export type ModelChoice = { key: string; model: Model<Api> };
 
-// Modelli Codex del catalogo di Pi 0.73 che Pi 1.x non elenca più (es. gpt-5.5).
-// Un default salvato su uno di questi deve sopravvivere all'aggiornamento
-// dell'SDK invece di bloccare tutte le sessioni: il transport Codex inoltra l'id
-// come stringa, quindi li costruiamo come i modelli custom.
-const LEGACY_CODEX_IDS = new Set([
-  'gpt-5.1', 'gpt-5.1-codex-max', 'gpt-5.1-codex-mini', 'gpt-5.2', 'gpt-5.2-codex',
-  'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.5',
-]);
-
 export function resolveModel(registry: Registry, key: unknown): ModelChoice | null {
   if (typeof key !== 'string') return null;
   const [provider, ...rest] = key.trim().split('/');
@@ -24,12 +15,7 @@ export function resolveModel(registry: Registry, key: unknown): ModelChoice | nu
   const builtin = registry.getModel(provider, id);
   if (builtin) return { key: `${provider}/${id}`, model: builtin };
   const custom = provider === 'openai-codex' ? getCustomModel(provider, id) : null;
-  if (!custom) {
-    if (provider === 'openai-codex' && LEGACY_CODEX_IDS.has(id)) {
-      return { key: `${provider}/${id}`, model: buildCodexModel(registry, { modelId: id }) };
-    }
-    return null;
-  }
+  if (!custom) return null;
   return { key: `${provider}/${id}`, model: buildCodexModel(registry, {
     modelId: custom.model_id, label: custom.label,
     contextWindow: custom.context_window, maxTokens: custom.max_tokens,
