@@ -24,6 +24,7 @@ import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
 import { getBranchInfo } from './preview-branch.js';
 import { insertRevision } from './db/revisions.js';
 import { fetchUpstream } from './remote-sync.js';
+import { IS_STAGING, STAGING_PUBLISH_NOTE } from './staging.js';
 
 interface RunResult {
   code: number;
@@ -122,10 +123,11 @@ export async function rollbackToPublish(
   const fullSha = (await run('git', ['rev-parse', 'HEAD'], cwd)).stdout.trim();
   const shortSha = fullSha.slice(0, 7);
 
-  // 5) Push autenticato, identico al publish.
+  // 5) Push autenticato, identico al publish (in staging solo simulato).
   const token = await getInstallationToken();
   const pushUrl = authenticatedRepoUrl(site.repo_url, token);
-  const pushRes = await run('git', ['push', pushUrl, `HEAD:${upstream}`], cwd);
+  const pushArgs = IS_STAGING ? ['push', '--dry-run'] : ['push'];
+  const pushRes = await run('git', [...pushArgs, pushUrl, `HEAD:${upstream}`], cwd);
   if (pushRes.code !== 0) {
     const sanitized = pushRes.stderr.replace(/x-access-token:[^@]+@/g, 'x-access-token:***@');
     await run('git', ['checkout', 'preview'], cwd);
@@ -158,6 +160,9 @@ export async function rollbackToPublish(
     console.warn(`[rollback] insertRevision fallito:`, e);
   }
 
+  if (IS_STAGING) {
+    return { ok: true, message: `${STAGING_PUBLISH_NOTE} Ripristino ${targetSha.slice(0, 8)} pronto su ${upstream}.`, commitSha: shortSha, pushed: false };
+  }
   return {
     ok: true,
     message: `Sito ripristinato alla pubblicazione ${targetSha.slice(0, 8)}. Commit ${shortSha} su ${upstream}, Coolify ridispiega a breve.`,

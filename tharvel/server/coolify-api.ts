@@ -9,6 +9,8 @@
 // COOLIFY_API_TOKEN. Da dentro la rete docker `coolify` il container Coolify
 // è raggiungibile su `http://coolify:8080`.
 
+import { IS_STAGING } from './staging.js';
+
 function apiBase(): string {
   const url = process.env.COOLIFY_API_URL;
   if (!url) throw new Error('COOLIFY_API_URL non impostata (atteso es. http://coolify:8080/api/v1).');
@@ -123,6 +125,10 @@ export async function findApplicationByRepo(
 // Per Tharvel: aggiungiamo il dominio cliente con prefix /tharveladmin all'elenco FQDN,
 // preservando quelli esistenti.
 export async function updateApplicationDomains(uuid: string, domains: string): Promise<void> {
+  if (IS_STAGING) {
+    console.log(`[STAGING] PATCH domini Coolify ${uuid} simulato: ${domains}`);
+    return;
+  }
   await coolifyFetch(`/applications/${uuid}`, {
     method: 'PATCH',
     body: JSON.stringify({ domains }),
@@ -137,6 +143,10 @@ export async function updateApplicationDomains(uuid: string, domains: string): P
 // sito cliente (404 / sito normale). La chiamata mette il restart in coda e
 // ritorna subito (il recreate avviene in background, ~1-2 min).
 export async function restartApplication(uuid: string): Promise<void> {
+  if (IS_STAGING) {
+    console.log(`[STAGING] restart Coolify ${uuid} simulato`);
+    return;
+  }
   await coolifyFetch(`/applications/${uuid}/restart`, { method: 'GET' });
 }
 

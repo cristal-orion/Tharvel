@@ -29,6 +29,8 @@ import { onboardSite, OnboardError } from './onboard-pipeline.js';
 import { autoCommitTurn } from './auto-commit.js';
 import { ensurePreviewBranch } from './preview-branch.js';
 import { syncPreviewWithRemote } from './remote-sync.js';
+import { getModelRuntime } from './pi-runtime.js';
+import { IS_STAGING } from './staging.js';
 import { saveChatAttachments } from './chat-attachments.js';
 import { ensurePiSettings } from './pi-settings.js';
 import { buildAgentPrompt } from './agent-prompt.js';
@@ -973,16 +975,22 @@ wss.on('connection', async (ws, req) => {
   );
 
   try {
-    const authStorage = AuthStorage.create();
-    const modelRegistry = ModelRegistry.create(authStorage);
+    const modelRuntime = await getModelRuntime();
 
-    const initialChoice = getSessionModel(modelRegistry);
+    const initialChoice = getSessionModel(modelRuntime);
 
     const sitePath = resolveSiteCwd(site);
 
     // Il sito può essere stato aggiornato su GitHub fuori da Tharvel: allinea
     // preview PRIMA di costruire la scheda contesto, così agente e anteprima
     // partono dall'ultima versione online senza doverlo chiedere all'agente.
+    if (IS_STAGING) {
+      ws.send(JSON.stringify({
+        type: 'system',
+        content: '🧪 Ambiente di STAGING: copia di prova di Tharvel. "Pubblica" è simulato e non cambia il sito online.',
+      }));
+    }
+
     const remoteSync = await syncPreviewWithRemote(site, sitePath);
     console.log(`[SYNC] '${site.slug}': ${remoteSync.outcome} (${remoteSync.message})`);
     const incomingLabel = (n: number) => `${n} modific${n === 1 ? 'a' : 'he'}`;

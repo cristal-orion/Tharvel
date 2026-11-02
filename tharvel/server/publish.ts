@@ -18,6 +18,7 @@ import { getInstallationToken, authenticatedRepoUrl } from './github-app.js';
 import { ensurePreviewBranch, getBranchInfo } from './preview-branch.js';
 import { insertRevision, markTurnsAsSuperseded } from './db/revisions.js';
 import { fetchUpstream } from './remote-sync.js';
+import { IS_STAGING, STAGING_PUBLISH_NOTE } from './staging.js';
 
 interface RunResult {
   code: number;
@@ -145,10 +146,11 @@ export async function publishSite(
   const fullShaRes = await run('git', ['rev-parse', 'HEAD'], { cwd });
   const fullSha = fullShaRes.stdout.trim();
 
-  // 7) Push autenticato.
+  // 7) Push autenticato (in staging solo simulato, vedi staging.ts).
   const token = await getInstallationToken();
   const pushUrl = authenticatedRepoUrl(site.repo_url, token);
-  const pushRes = await run('git', ['push', pushUrl, `HEAD:${upstream}`], { cwd });
+  const pushArgs = IS_STAGING ? ['push', '--dry-run'] : ['push'];
+  const pushRes = await run('git', [...pushArgs, pushUrl, `HEAD:${upstream}`], { cwd });
   if (pushRes.code !== 0) {
     const sanitized = pushRes.stderr.replace(/x-access-token:[^@]+@/g, 'x-access-token:***@');
     // Lascia il commit locale su upstream così il prossimo Pubblica può ritentare.
@@ -184,6 +186,9 @@ export async function publishSite(
     console.warn(`[publish] insertRevision(publish) fallito:`, e);
   }
 
+  if (IS_STAGING) {
+    return { ok: true, message: `${STAGING_PUBLISH_NOTE} Commit ${commitSha} pronto su ${upstream}.`, commitSha, pushed: false };
+  }
   return {
     ok: true,
     message: `Pubblicato. Commit ${commitSha} su ${upstream}. Coolify avvierà il deploy del sito a breve.`,
