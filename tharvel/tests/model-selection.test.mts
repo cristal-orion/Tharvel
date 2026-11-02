@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import type { Api, Model } from '@mariozechner/pi-ai';
+import type { Api, Model } from '@earendil-works/pi-ai';
 import { getDb } from '../server/db/index.js';
 import { getDefaultModelKey, setDefaultModelKey } from '../server/db/model-settings.js';
 import { upsertCustomModel, deleteCustomModel } from '../server/db/custom-models.js';
@@ -22,7 +22,7 @@ const builtin: Model<Api> = {
   baseUrl: 'https://example.test', reasoning: true, input: ['text', 'image'],
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 100000, maxTokens: 10000,
 };
-const registry = { find: (provider: string, id: string) => provider === builtin.provider && id === builtin.id ? builtin : undefined };
+const registry = { getModel: (provider: string, id: string) => provider === builtin.provider && id === builtin.id ? builtin : undefined };
 function fakeSession() {
   return {
     current: builtin, isStreaming: false, denied: '',
@@ -156,4 +156,13 @@ test('custom model resolution preserves the exact provider/id and configured lim
   assert.equal(chosen.model.id, 'gpt-6-sol');
   assert.equal(chosen.model.contextWindow, 200000);
   assert.equal(chosen.model.maxTokens, 50000);
+});
+
+test('a Codex model dropped from the SDK catalog (gpt-5.5 after Pi 1.x) still resolves', () => {
+  const catalogWithoutIt = { getModel: () => undefined };
+  const chosen = resolveModel(catalogWithoutIt, OLD)!;
+  assert.equal(chosen.key, OLD);
+  assert.equal(chosen.model.id, 'gpt-5.5');
+  assert.equal(chosen.model.provider, 'openai-codex');
+  assert.equal(resolveModel(catalogWithoutIt, 'openai-codex/gpt-4-mai-esistito'), null);
 });

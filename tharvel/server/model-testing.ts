@@ -1,8 +1,8 @@
 // Costruzione di un Model Codex "custom" e test di connessione.
 //
-// Perché serve: pi-coding-agent 0.73 ha una lista di modelli built-in che si
-// ferma a un certo punto (es. gpt-5.5 per openai-codex). Quando esce un modello
-// nuovo, `ModelRegistry.find()` ritorna undefined e il modello è inselezionabile.
+// Perché serve: il catalogo built-in di pi-coding-agent si ferma alla versione
+// installata. Quando esce un modello nuovo, `ModelRuntime.getModel()` ritorna
+// undefined e il modello è inselezionabile.
 // Ma il transport OAuth di Codex (`openai-codex-responses`) inoltra semplicemente
 // l'id del modello come stringa al backend ChatGPT: basta costruire un oggetto
 // Model con quell'id (clonando la forma di un modello Codex già noto) e funziona.
@@ -11,16 +11,17 @@
 // una sessione reale) e fa una completion minima: se non lancia, il modello è
 // valido e raggiungibile.
 
-import { complete } from '@mariozechner/pi-ai';
-import type { Api, AssistantMessage, Model } from '@mariozechner/pi-ai';
-import type { ModelRegistry } from '@mariozechner/pi-coding-agent';
+import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
+import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 
-// Modelli Codex noti da cui clonare la "forma" (cost/contextWindow/api/baseUrl).
-// Ordine di preferenza: il più recente per primo. Se nessuno è presente nel
-// registry (SDK cambia i built-in), si usa il fallback literale sotto.
-const CODEX_TEMPLATE_IDS = ['gpt-5.5', 'gpt-5.4', 'gpt-5.2', 'gpt-5.1'];
+// Modelli Codex noti da cui clonare la "forma" (cost/contextWindow/api/baseUrl,
+// compat, limiti immagini). Ordine di preferenza: il primo presente nel catalogo
+// vince. Pi 1.x ha tolto gpt-5.x ≤ 5.5 dal catalogo, quindi i primi sono i
+// modelli attuali; se nessuno c'è (SDK cambia i built-in), si usa il fallback
+// literale sotto.
+const CODEX_TEMPLATE_IDS = ['gpt-5.6-sol', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-5.5', 'gpt-5.4'];
 
-// Fallback allineato alla forma dei modelli openai-codex in pi-ai 0.73.
+// Fallback allineato alla forma dei modelli openai-codex di pi-ai.
 const CODEX_FALLBACK: Omit<Model<Api>, 'id' | 'name'> = {
   api: 'openai-codex-responses' as Api,
   provider: 'openai-codex',
@@ -40,10 +41,10 @@ export interface BuildCodexModelOpts {
 }
 
 // Clona il template Codex e sovrascrive id/name (+ limiti opzionali).
-export function buildCodexModel(registry: Pick<ModelRegistry, 'find'>, opts: BuildCodexModelOpts): Model<Api> {
+export function buildCodexModel(registry: Pick<ModelRuntime, 'getModel'>, opts: BuildCodexModelOpts): Model<Api> {
   let template: Model<Api> | undefined;
   for (const id of CODEX_TEMPLATE_IDS) {
-    template = registry.find('openai-codex', id);
+    template = registry.getModel('openai-codex', id);
     if (template) break;
   }
 
@@ -88,38 +89,22 @@ export interface TestResult {
   error?: string;
 }
 
-// Risolve l'auth del provider (OAuth con refresh automatico, o API key) e fa un
-// ping. Non lancia: ritorna sempre { ok, ... } per un feedback pulito in UI.
+// Fa un ping con le credenziali salvate: il runtime risolve l'auth del provider
+// (OAuth con refresh automatico, o API key) come in una sessione vera. Non
+// lancia: ritorna sempre { ok, ... } per un feedback pulito in UI.
 export async function testModelConnection(
-  registry: ModelRegistry,
+  runtime: ModelRuntime,
   model: Model<Api>,
   timeoutMs = 30000,
 ): Promise<TestResult> {
-  // Cast a forma singola: ResolvedRequestAuth è una discriminated union ma il
-  // tsconfig ha strict:false e il narrowing su `ok` non è affidabile.
-  const auth = (await registry.getApiKeyAndHeaders(model)) as {
-    ok: boolean;
-    apiKey?: string;
-    headers?: Record<string, string>;
-    error?: string;
-  };
-  if (!auth.ok) {
-    return { ok: false, error: auth.error || 'provider non autenticato (fai il login)' };
-  }
-  if (!auth.apiKey && !auth.headers) {
+  if (!runtime.hasConfiguredAuth(model.provider)) {
     return { ok: false, error: `nessuna credenziale trovata per "${model.provider}" — fai il login` };
   }
-
   try {
-    const result = await complete(
+    const result = await runtime.complete(
       model,
       { messages: [{ role: 'user', content: 'ping', timestamp: Date.now() }] },
-      {
-        apiKey: auth.apiKey,
-        headers: auth.headers,
-        maxTokens: 64,
-        signal: AbortSignal.timeout(timeoutMs),
-      },
+      { maxTokens: 64, signal: AbortSignal.timeout(timeoutMs) },
     );
     return { ok: true, sample: extractText(result) };
   } catch (err) {

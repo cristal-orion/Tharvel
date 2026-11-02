@@ -9,14 +9,12 @@ import fs from 'fs/promises';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import {
-  AuthStorage,
   createAgentSession,
-  ModelRegistry,
   SessionManager,
   DefaultResourceLoader,
   defineTool,
   getAgentDir,
-} from '@mariozechner/pi-coding-agent';
+} from '@earendil-works/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
 import sharp from 'sharp';
 import { getDb } from './db/index.js';
@@ -599,12 +597,12 @@ app.get('/api/models', requireAuth, requireAdmin, (_req, res) => {
 
 // Recovery independent of the agent session: an unavailable saved model must
 // remain replaceable by the admin without silently booting clients on another.
-app.put('/api/admin/models/default', requireAuth, requireAdmin, (req, res) => {
+app.put('/api/admin/models/default', requireAuth, requireAdmin, async (req, res) => {
   try {
-    const registry = ModelRegistry.create(AuthStorage.create());
-    const choice = resolveModel(registry, req.body?.model);
+    const runtime = await getModelRuntime();
+    const choice = resolveModel(runtime, req.body?.model);
     if (!choice) { res.status(400).json({ error: 'Modello non trovato.' }); return; }
-    if (!registry.hasConfiguredAuth(choice.model)) {
+    if (!runtime.hasConfiguredAuth(choice.model.provider)) {
       res.status(400).json({ error: `Provider ${choice.model.provider} non autenticato.` }); return;
     }
     setDefaultModelKey(choice.key);
@@ -663,15 +661,14 @@ app.post('/api/admin/models/test', requireAuth, requireAdmin, async (req, res) =
     return;
   }
   try {
-    const authStorage = AuthStorage.create();
-    const registry = ModelRegistry.create(authStorage);
-    const model = buildCodexModel(registry, {
+    const runtime = await getModelRuntime();
+    const model = buildCodexModel(runtime, {
       modelId: parsed.modelId,
       label: parsed.label,
       contextWindow: parsed.contextWindow,
       maxTokens: parsed.maxTokens,
     });
-    const result = await testModelConnection(registry, model);
+    const result = await testModelConnection(runtime, model);
     if (result.ok) {
       res.json({ ok: true, sample: result.sample });
     } else {
@@ -1083,8 +1080,12 @@ wss.on('connection', async (ws, req) => {
       })
     });
 
-    // Per assicurarci che i file extension di .pi vengano caricati e la cache aggiornata:
-    await loader.reload();
+    // Per assicurarci che i file extension di .pi vengano caricati e la cache aggiornata.
+    // `resolveProjectTrust`: da Pi 0.79 il .pi/settings.json del sito (che dichiara
+    // generate_image) è caricato solo se il progetto è "trusted", e senza un prompt
+    // interattivo il default è non caricarlo. Le cartelle dei siti sono gestite da
+    // Tharvel, che scrive lui stesso quel file: come con Pi 0.73, le carichiamo.
+    await loader.reload({ resolveProjectTrust: async () => true });
 
     // Log diagnostico: quali extension ha caricato il loader per questo sito,
     // e quali errori ha registrato durante il discovery. Utile per capire perché
@@ -1208,14 +1209,13 @@ wss.on('connection', async (ws, req) => {
     const { session } = await createAgentSession({
       sessionManager: SessionManager.inMemory(),
       model: initialChoice.model,
-      authStorage,
-      modelRegistry,
+      modelRuntime,
       cwd: sitePath,
       customTools: [processUploadTool, publishTool],
       resourceLoader: loader,
     });
 
-    const modelSelection = createModelSelection(modelRegistry, session, initialChoice);
+    const modelSelection = createModelSelection(modelRuntime, session, initialChoice);
     const reportModel = () => ws.send(JSON.stringify({ type: 'model_active', model: modelSelection.active.key }));
     const changeModel = async (key: unknown) => {
       try {
@@ -1339,7 +1339,9 @@ wss.on('connection', async (ws, req) => {
         }));
       }
       
-      if (event.type === 'agent_end') {
+      // `willRetry`: Pi sta per ritentare da solo (es. errore transitorio del
+      // provider). Il turno non è finito: niente auto-commit né `done` alla UI.
+      if (event.type === 'agent_end' && !event.willRetry) {
         // Auto-commit per turn dell'agente. Fire-and-forget: non bloccare il
         // 'done' al client. Se l'utente clicca subito Pubblica prima che il
         // commit sia finito, publishSite ritrova il working tree clean+ahead
@@ -1503,15 +1505,19 @@ wss.on('connection', async (ws, req) => {
           // Full provider/id is unambiguous; bare ids preserve the old command
           // syntax, trying the current provider first (including custom Codex).
           const provider = modelSelection.active.model.provider;
-          const choice = requested.includes('/') ? resolveModel(modelRegistry, requested)
-            : [provider, 'openai-codex', 'github-copilot', 'anthropic'].map(p => resolveModel(modelRegistry, `${p}/${requested}`)).find(Boolean);
+          const choice = requested.includes('/') ? resolveModel(modelRuntime, requested)
+            : [provider, 'openai-codex', 'github-copilot', 'anthropic'].map(p => resolveModel(modelRuntime, `${p}/${requested}`)).find(Boolean);
           await changeModel(choice?.key ?? requested);
           ws.send(JSON.stringify({ type: 'done' }));
           return;
         }
 
         if (text.startsWith('/clear')) {
-          session.agent.state.messages = [];
+          // Da Pi 0.87 la cronologia vive nel SessionManager: svuotare
+          // agent.state.messages non cancella più niente. Riportiamo il leaf
+          // prima della prima entry e ricostruiamo il contesto (vuoto).
+          session.sessionManager.resetLeaf();
+          session.refreshContext();
           pendingUploadNotices = [];
           ws.send(JSON.stringify({ type: 'system', content: `🧹 Memoria della chat cancellata.` }));
           ws.send(JSON.stringify({ type: 'done' }));

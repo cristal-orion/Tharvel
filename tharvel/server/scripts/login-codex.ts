@@ -7,7 +7,7 @@
  *
  * Uso: npm run login:codex (dal workspace `server/`)
  */
-import { AuthStorage } from "@mariozechner/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { createInterface } from "node:readline";
 import { createServer } from "node:http";
 
@@ -15,9 +15,9 @@ const rl = createInterface({ input: process.stdin, output: process.stdout });
 const ask = (q: string) =>
   new Promise<string>((resolve) => rl.question(q + " ", resolve));
 
-// Bug SDK 0.73: `pi-ai/utils/oauth/openai-codex.js` carica `node:crypto` e
-// `node:http` con dynamic import asincroni e non li attende prima di usarli.
-// Forziamo qui il warm-up dei moduli prima di chiamare `auth.login`.
+// Bug SDK 0.73: `pi-ai/utils/oauth/openai-codex.js` caricava `node:crypto` e
+// `node:http` con dynamic import asincroni senza attenderli. Il warm-up costa
+// nulla e ci protegge se il problema si ripresenta.
 await import("node:crypto");
 await import("node:http");
 await new Promise((resolve) => setTimeout(resolve, 100));
@@ -49,29 +49,34 @@ async function checkPort1455Free(): Promise<void> {
 await checkPort1455Free();
 
 async function main() {
-  const auth = AuthStorage.create(); // default ~/.pi/agent/auth.json
+  const runtime = await ModelRuntime.create(); // default ~/.pi/agent/auth.json
 
   console.log("\n=== Tharvel · login OpenAI Codex (ChatGPT Plus/Pro) ===\n");
 
-  await auth.login("openai-codex", {
-    onAuth: ({ url, instructions }) => {
-      console.log("Apri questo URL nel browser dove sei già loggato a ChatGPT:\n");
-      console.log("  " + url + "\n");
-      if (instructions) console.log(instructions + "\n");
-      console.log("Se il callback automatico fallisce, paste-a qui sotto il codice ricevuto.\n");
+  await runtime.login("openai-codex", "oauth", {
+    notify: (event) => {
+      if (event.type === "auth_url") {
+        console.log("Apri questo URL nel browser dove sei già loggato a ChatGPT:\n");
+        console.log("  " + event.url + "\n");
+        if (event.instructions) console.log(event.instructions + "\n");
+        console.log("Se il callback automatico fallisce, paste-a qui sotto il codice ricevuto.\n");
+      } else if (event.type === "device_code") {
+        console.log(`Apri ${event.verificationUri} e inserisci il codice: ${event.userCode}\n`);
+      } else {
+        console.log("• " + event.message);
+      }
     },
-    onPrompt: async (p) => {
-      const placeholder = p.placeholder ? ` (${p.placeholder})` : "";
+    // Copre anche il paste manuale del codice (`manual_code`), fallback se il
+    // callback su localhost non arriva.
+    prompt: async (p) => {
+      const placeholder = "placeholder" in p && p.placeholder ? ` (${p.placeholder})` : "";
       return ask(p.message + placeholder + ":");
-    },
-    onProgress: (m) => console.log("• " + m),
-    onManualCodeInput: async () => {
-      return ask("Codice OAuth (paste manuale, fallback se il callback non arriva):");
     },
   });
 
   console.log("\nLogin completato. Credenziali salvate in ~/.pi/agent/auth.json\n");
-  console.log("Provider attivi:", auth.list().join(", "));
+  const providers = (await runtime.listCredentials()).map((c) => c.providerId);
+  console.log("Provider attivi:", providers.join(", "));
   rl.close();
 }
 

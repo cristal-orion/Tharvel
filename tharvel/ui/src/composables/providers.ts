@@ -19,8 +19,9 @@ export const PROVIDERS: ProviderInfo[] = [
     authMode: 'oauth',
     description: 'Login con account ChatGPT, usa l\'abbonamento Plus o Pro.',
     models: [
-      { id: 'gpt-5.5', label: 'GPT-5.5' },
-      { id: 'gpt-5.4', label: 'GPT-5.4' },
+      { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol' },
+      { id: 'gpt-6-sol', label: 'GPT-6 Sol' },
+      { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
     ],
   },
   {
@@ -39,9 +40,9 @@ export const PROVIDERS: ProviderInfo[] = [
     authMode: 'oauth',
     description: 'Login con GitHub, usa l\'abbonamento Copilot.',
     models: [
-      { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-      { id: 'gpt-5.4', label: 'GPT-5.4' },
-      { id: 'gpt-4o', label: 'GPT-4o' },
+      { id: 'claude-sonnet-5.5', label: 'Claude Sonnet 5.5' },
+      { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol' },
+      { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol' },
     ],
   },
   {
@@ -61,10 +62,10 @@ export const PROVIDERS: ProviderInfo[] = [
     authMode: 'apikey',
     description: 'API key da opencode.ai (piano Go).',
     models: [
-      { id: 'kimi-k2.6', label: 'Kimi K2.6' },
-      { id: 'glm-5.1', label: 'GLM 5.1' },
-      { id: 'minimax-m2.7', label: 'MiniMax M2.7' },
-      { id: 'qwen3.6-plus', label: 'Qwen 3.6 Plus' },
+      { id: 'kimi-k3', label: 'Kimi K3' },
+      { id: 'glm-5.3', label: 'GLM 5.3' },
+      { id: 'minimax-m3', label: 'MiniMax M3' },
+      { id: 'qwen3.7-plus', label: 'Qwen 3.7 Plus' },
     ],
   },
   {
